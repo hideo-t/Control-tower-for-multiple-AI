@@ -234,6 +234,13 @@ textarea.fc{resize:vertical;min-height:70px}
 .md pre{background:#1a1a1a;border-radius:7px;overflow-x:auto;margin:7px 0;border:1px solid var(--bd)}
 .md pre code{font-size:12px!important;background:transparent!important}
 .md strong{font-weight:600}
+
+/* Synthesis card */
+.synth-card{background:linear-gradient(135deg,rgba(217,119,87,.08),rgba(75,108,247,.06));border:1px solid rgba(217,119,87,.3);border-radius:10px;margin-bottom:16px;overflow:hidden;animation:cin .3s ease}
+.synth-hd{display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid rgba(217,119,87,.2);background:rgba(217,119,87,.06)}
+.synth-hd-title{font-size:12px;font-weight:600;color:#e8a87c;flex:1}
+.synth-body{padding:12px 14px;font-size:13px;line-height:1.75}
+.synth-foot{display:flex;gap:5px;padding:7px 12px;border-top:1px solid rgba(217,119,87,.15)}
 </style>
 </head>
 <body>
@@ -596,6 +603,19 @@ function renderConv(){
     msgs.appendChild(u);
     var rd=document.createElement('div'); rd.id='tr'+ti; msgs.appendChild(rd);
     renderTurn(rd,turn,ti,conv);
+    // Re-render saved synthesis if exists
+    if(turn.synthesis){
+      var sd2=document.createElement('div');
+      sd2.id='synth'+ti; sd2.className='synth-card';
+      var prs=Object.keys(turn.responses).filter(function(pid){return turn.responses[pid]&&turn.responses[pid].done&&!turn.responses[pid].error;});
+      var provNames=prs.map(function(pid){return (PV[pid]&&PV[pid].em||'?')+(PV[pid]&&PV[pid].name||pid);}).join(' + ');
+      sd2.innerHTML='<div class="synth-hd"><span style="font-size:16px">🔮</span><span class="synth-hd-title">統合回答</span>'
+        +'<span style="font-size:10px;color:var(--tx3);margin-left:6px">'+provNames+'</span></div>'
+        +'<div class="synth-body"><div class="md">'+sanitize(mdRender(turn.synthesis,'synth'+ti))+'</div></div>'
+        +'<div class="synth-foot"><button class="rcbtn" data-cp="'+escA(turn.synthesis)+'">📋 コピー</button></div>';
+      sd2.querySelectorAll('[data-cp]').forEach(function(b){b.addEventListener('click',function(){cp(b.dataset.cp,b);});});
+      msgs.appendChild(sd2);
+    }
   });
   var sc=document.getElementById('chat-scrl'); sc.scrollTop=sc.scrollHeight;
 }
@@ -708,7 +728,9 @@ async function send(){
   document.getElementById('sendbtn').classList.remove('stop');
   act.forEach(function(pid){var ok=turn.responses[pid]&&turn.responses[pid].done&&!turn.responses[pid].error;setPdot(pid,ok?'ok':'err');});
   save(); renderHistory();
-  log('完了','o');
+  log('全回答完了','o');
+  // Run synthesis after all responses are in
+  await synthesize(conv, ti);
 }
 
 async function broadcastAll(){
@@ -747,13 +769,27 @@ async function callProv(pid,userText,conv,ti){
 }
 
 function buildMsgs(conv,ti,pid){
+  // Build strict user/assistant alternating history — never consecutive user messages
   var msgs=[];
   var start=Math.max(0,ti-8);
   for(var i=start;i<ti;i++){
-    var t=conv.turns[i]; msgs.push({role:'user',content:t.user});
-    var ar2=t.responses[pid];
-    if(!ar2||!ar2.done||ar2.error){var ks=Object.keys(t.responses);for(var j=0;j<ks.length;j++){if(t.responses[ks[j]].done&&!t.responses[ks[j]].error){ar2=t.responses[ks[j]];break;}}}
-    if(ar2&&ar2.done&&!ar2.error)msgs.push({role:'assistant',content:ar2.text});
+    var t=conv.turns[i];
+    // Find best assistant response for this turn
+    var aText=null;
+    if(t.responses[pid]&&t.responses[pid].done&&!t.responses[pid].error&&t.responses[pid].text){
+      aText=t.responses[pid].text;
+    } else {
+      var ks=Object.keys(t.responses);
+      for(var j=0;j<ks.length;j++){
+        var rr=t.responses[ks[j]];
+        if(rr&&rr.done&&!rr.error&&rr.text){aText=rr.text;break;}
+      }
+    }
+    // Only include turn if we have both user and assistant text
+    if(aText){
+      msgs.push({role:'user',content:t.user||''});
+      msgs.push({role:'assistant',content:aText});
+    }
   }
   msgs.push({role:'user',content:conv.turns[ti].user});
   return msgs;
@@ -784,6 +820,83 @@ async function callOAI(msgs,model,key,sys,ep){
   if(!r.ok){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.error)em=typeof ej.error==='string'?ej.error:ej.error.message;}catch(x){}throw new Error(em);}
   var d=await r.json();
   return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+}
+
+// ═══ SYNTHESIS ═══
+async function synthesize(conv, ti){
+  var turn = conv.turns[ti];
+  var goodResps = [];
+  Object.keys(turn.responses).forEach(function(pid){
+    var r = turn.responses[pid];
+    if(r && r.done && !r.error && r.text && r.text.length > 10){
+      goodResps.push({pid:pid, name:(PV[pid]&&PV[pid].name)||pid, em:(PV[pid]&&PV[pid].em)||'?', text:r.text});
+    }
+  });
+  if(goodResps.length < 2) return;
+
+  var synthId = 'synth'+ti;
+  var container = document.getElementById('tr'+ti);
+  if(!container) return;
+  var sd = document.createElement('div');
+  sd.id = synthId; sd.className = 'synth-card';
+  sd.innerHTML = '<div class="synth-hd"><span style="font-size:16px">🔮</span>'
+    + '<span class="synth-hd-title">統合回答 — 分析中…</span></div>'
+    + '<div class="synth-body"><div class="thinking">分析中<span class="tdots"><span></span><span></span><span></span></span></div></div>';
+  container.appendChild(sd);
+  var sc = document.getElementById('chat-scrl'); sc.scrollTop = sc.scrollHeight;
+
+  var question = conv.turns[ti].user;
+  var respSections = goodResps.map(function(r){ return '### '+r.em+' '+r.name+'\n'+r.text; }).join('\n\n');
+  var synthPrompt = '以下は「'+question+'」という質問に対する複数のAIの回答です。\n\n'
+    + respSections + '\n\n'
+    + '上記を踏まえて、①共通点・合意事項、②各AIの独自視点・差異、③最終統合回答、の3点を日本語でまとめてください。';
+
+  var synthText = '';
+  try{
+    var synthOrder = ['claude','openai','gemini','deepseek','grok','local'];
+    var done = false;
+    for(var si2=0; si2<synthOrder.length && !done; si2++){
+      var spid = synthOrder[si2];
+      var skey = S.keys[spid]||'';
+      if(!skey && spid!=='local') continue;
+      var smodel = S.models[spid]||PV[spid].def;
+      var smsgs = [{role:'user', content:synthPrompt}];
+      var ssys = 'あなたは複数AIの回答を統合分析するアナリストです。共通点、差異、最善の統合回答を客観的に提示してください。';
+      try{
+        if(spid==='claude')        synthText = await callClaude(smsgs, smodel, skey, ssys);
+        else if(spid==='gemini')   synthText = await callGemini(smsgs, smodel, skey, ssys);
+        else if(spid==='openai')   synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.openai.com/v1/chat/completions');
+        else if(spid==='deepseek') synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.deepseek.com/v1/chat/completions');
+        else if(spid==='grok')     synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.x.ai/v1/chat/completions');
+        else if(spid==='local')    synthText = await callOAI(smsgs, smodel, 'none', ssys, (S.localEP||'http://localhost:11434')+'/v1/chat/completions');
+        if(synthText){ done = true; log('統合: '+spid+' で生成','o'); }
+      }catch(ex){ log('統合 '+spid+' 失敗: '+ex.message,'w'); }
+    }
+    turn.synthesis = synthText || '（統合回答の生成に失敗しました）';
+    save();
+    var provNames = goodResps.map(function(r){ return r.em+r.name; }).join(' + ');
+    var el = document.getElementById(synthId);
+    if(el){
+      el.innerHTML = '<div class="synth-hd"><span style="font-size:16px">🔮</span>'
+        + '<span class="synth-hd-title">統合回答</span>'
+        + '<span style="font-size:10px;color:var(--tx3);margin-left:8px">'+provNames+' を統合</span></div>'
+        + '<div class="synth-body"><div class="md">'+sanitize(mdRender(synthText||'','synth'))+'</div></div>'
+        + '<div class="synth-foot">'
+        + '<button class="rcbtn" data-cpsynth="1">📋 コピー</button>'
+        + '<button class="rcbtn" data-ucsynth="1">💻 コードを使う</button>'
+        + '</div>';
+      var synthRef = synthText;
+      el.querySelector('[data-cpsynth]').addEventListener('click', function(){ cp(synthRef, this); });
+      el.querySelector('[data-ucsynth]').addEventListener('click', function(){ useCode(synthRef); });
+      if(typeof hljs!=='undefined') el.querySelectorAll('pre code:not(.hljs)').forEach(function(c){hljs.highlightElement(c);});
+      sc.scrollTop = sc.scrollHeight;
+    }
+  }catch(e){
+    log('統合エラー: '+e.message,'e');
+    var el2 = document.getElementById(synthId);
+    if(el2) el2.innerHTML = '<div class="synth-hd"><span style="font-size:16px">🔮</span>'
+      + '<span class="synth-hd-title" style="color:#e05252">統合失敗: '+escH(e.message)+'</span></div>';
+  }
 }
 
 async function callGemini(msgs,model,key,sys){
