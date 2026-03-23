@@ -947,12 +947,56 @@ async function synthesize(conv, ti){
 }
 
 async function callGemini(msgs,model,key,sys){
-  var contents=msgs.map(function(m){return{role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]};});
-  var body={contents:contents}; if(sys)body.systemInstruction={parts:[{text:sys}]};
-  var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!r.ok){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.error)em=ej.error.message;}catch(x){}throw new Error(em);}
-  var d=await r.json();
-  return (d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts&&d.candidates[0].content.parts[0]&&d.candidates[0].content.parts[0].text)||'';
+  // Gemini requires strict user/model alternation, starting with user
+  // Convert messages and ensure no consecutive same roles
+  var rawContents = msgs.map(function(m){
+    return {role: m.role==='assistant'?'model':'user', parts:[{text: m.content||''}]};
+  });
+  // De-duplicate consecutive same roles (keep last of each consecutive group)
+  var contents = [];
+  for(var i=0;i<rawContents.length;i++){
+    var cur = rawContents[i];
+    if(contents.length>0 && contents[contents.length-1].role===cur.role){
+      // Merge text instead of duplicate role
+      contents[contents.length-1].parts[0].text += ' '+cur.parts[0].text;  } else {
+      contents.push({role:cur.role, parts:[{text:cur.parts[0].text}]});
+    }
+  }
+  // Must start with user
+  if(contents.length>0 && contents[0].role!=='user'){
+    contents.unshift({role:'user', parts:[{text:'こんにちは'}]});
+  }
+  var body = {contents: contents};
+  if(sys) body.systemInstruction = {role:'user', parts:[{text:sys}]};
+  // Try models in order if one fails
+  var tryModels = [model, 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+  var lastErr = '';
+  for(var mi=0; mi<tryModels.length; mi++){
+    var m2 = tryModels[mi];
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/'+m2+':generateContent?key='+key;
+    try{
+      var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if(!r.ok){
+        var em='HTTP '+r.status;
+        try{var ej=await r.json();if(ej.error)em=ej.error.message;}catch(x){}
+        // Model not found or not available → try next
+        if(em.indexOf('not found')>=0||em.indexOf('not supported')>=0||em.indexOf('no longer available')>=0){
+          log('Gemini: '+m2+' 利用不可 → 次のモデルへ','w');
+          lastErr=em; continue;
+        }
+        throw new Error(em);
+      }
+      var d=await r.json();
+      if(mi>0) log('Gemini: '+m2+' で成功','o');
+      return (d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts&&d.candidates[0].content.parts[0]&&d.candidates[0].content.parts[0].text)||'';
+    }catch(fe){
+      if(fe.message&&(fe.message.indexOf('not found')>=0||fe.message.indexOf('not supported')>=0)){
+        lastErr=fe.message; continue;
+      }
+      throw fe;
+    }
+  }
+  throw new Error('Gemini: 全モデルが利用不可。'+lastErr);
 }
 
 // ═══ APP BUILDER ═══
