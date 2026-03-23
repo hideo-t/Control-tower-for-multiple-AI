@@ -412,7 +412,8 @@ var S = {
   keys:{}, sel:{claude:true}, models:{}, sysPrompt:'', localEP:'http://localhost:11434',
   convs:[], curId:null, busy:false, viewMode:'cards', mode:'chat',
   files:{}, curFile:'index.html',
-  ghToken:'', ghRepo:'', ghBranch:'main', ghCommit:'Add generated app'
+  ghToken:'', ghRepo:'', ghBranch:'main', ghCommit:'Add generated app',
+  broadcastMode:false
 };
 var _cs={}, _mi=0;
 
@@ -427,6 +428,11 @@ function init(){
   fillGenSel();
   if(typeof marked!=='undefined') marked.setOptions({breaks:true,gfm:true});
   log('AI司令塔 起動','o');
+  // Restore broadcast mode UI
+  if(S.broadcastMode){
+    var btn=document.getElementById('all-btn');
+    if(btn){btn.textContent='⚡ 全AI一斉 ON';btn.style.background='#4caf80';btn.style.borderColor='#4caf80';}
+  }
   Object.keys(S.keys).forEach(function(k){if(S.keys[k])log(k+' key設定済','o');});
   document.getElementById('userinput').focus();
   switchMode('chat');
@@ -444,10 +450,11 @@ function load(){
     S.files=p.files||{}; S.curFile=p.curFile||'index.html';
     S.ghToken=p.ghToken||''; S.ghRepo=p.ghRepo||'';
     S.ghBranch=p.ghBranch||'main'; S.ghCommit=p.ghCommit||'Add generated app';
+    S.broadcastMode = p.broadcastMode||false;
   }catch(e){log('load err: '+e.message,'e');}
 }
 function save(){
-  try{localStorage.setItem('aicc2',JSON.stringify({keys:S.keys,sel:S.sel,models:S.models,sysPrompt:S.sysPrompt,localEP:S.localEP,convs:S.convs,curId:S.curId,files:S.files,curFile:S.curFile,ghToken:S.ghToken,ghRepo:S.ghRepo,ghBranch:S.ghBranch,ghCommit:S.ghCommit}));}
+  try{localStorage.setItem('aicc2',JSON.stringify({keys:S.keys,sel:S.sel,models:S.models,sysPrompt:S.sysPrompt,localEP:S.localEP,convs:S.convs,curId:S.curId,files:S.files,curFile:S.curFile,ghToken:S.ghToken,ghRepo:S.ghRepo,ghBranch:S.ghBranch,ghCommit:S.ghCommit,broadcastMode:S.broadcastMode}));}
   catch(e){log('save err: '+e.message,'e');}
 }
 
@@ -530,7 +537,10 @@ function updateTags(){
   var act=getActive();
   var h=act.length?act.map(function(pid){var pv=PV[pid];var k=!!S.keys[pid];return '<span class="aptag'+(k?' keyed':'')+'" style="'+(k?'border-color:'+pv.color+'50;color:'+pv.color:'')+'">'+pv.em+' '+pv.name+(k?'':' ⚠')+'</span>';}).join('')
     :'<span style="font-size:11px;color:var(--tx3)">← プロバイダーを選択してください</span>';
-  document.getElementById('apt-row').innerHTML=h;
+  var modeNote = S.broadcastMode
+    ? '<span style="font-size:10px;color:#4caf80;margin-left:6px;background:rgba(76,175,128,.1);border:1px solid rgba(76,175,128,.3);padding:2px 7px;border-radius:8px">⚡ 全AI一斉 ON</span>'
+    : '';
+  document.getElementById('apt-row').innerHTML = h + modeNote;
   var sb=document.getElementById('sendbtn');
   sb.disabled=act.length===0||S.busy;
 }
@@ -710,7 +720,14 @@ async function send(){
   if(S.busy)return;
   var inp=document.getElementById('userinput'), text=inp.value.trim();
   if(!text)return;
-  var act=getActive(); if(!act.length){openCfg();return;}
+  // In broadcast mode, auto-enable all keyed providers
+  if(S.broadcastMode){
+    Object.keys(PV).forEach(function(pid){ S.sel[pid] = !!(S.keys[pid]||pid==='local'); });
+    updateTags(); renderProviders();
+  }
+  // Only call providers that are selected AND have keys (or are local)
+  var act=getActive().filter(function(pid){ return !!(S.keys[pid]||pid==='local'); });
+  if(!act.length){ openCfg(); return; }
   if(!S.curId)newConv();
   var conv=getCur(); if(!conv)return;
   var turn={user:text,responses:{}};
@@ -734,11 +751,24 @@ async function send(){
 }
 
 async function broadcastAll(){
-  var prev=JSON.parse(JSON.stringify(S.sel));
-  Object.keys(PV).forEach(function(pid){S.sel[pid]=!!(S.keys[pid]);});
-  updateTags(); renderProviders();
-  await send();
-  S.sel=prev; updateTags(); renderProviders();
+  // Toggle sticky broadcast mode
+  S.broadcastMode = !S.broadcastMode;
+  var btn = document.getElementById('all-btn');
+  if(S.broadcastMode){
+    // Enable all keyed providers permanently until toggled off
+    Object.keys(PV).forEach(function(pid){ S.sel[pid] = !!(S.keys[pid]); });
+    btn.textContent = '⚡ 全AI一斉 ON'; btn.style.background = '#4caf80'; btn.style.borderColor = '#4caf80';
+    log('全AI一斉モード ON','o');
+  } else {
+    btn.textContent = '⚡ 全AI一斉'; btn.style.background = ''; btn.style.borderColor = '';
+    log('全AI一斉モード OFF','d');
+  }
+  save(); updateTags(); renderProviders();
+  // If turning on, send current input if any
+  if(S.broadcastMode){
+    var inp = document.getElementById('userinput');
+    if(inp.value.trim()) await send();
+  }
 }
 
 // ═══ PROVIDER CALLERS ═══
@@ -832,7 +862,24 @@ async function synthesize(conv, ti){
       goodResps.push({pid:pid, name:(PV[pid]&&PV[pid].name)||pid, em:(PV[pid]&&PV[pid].em)||'?', text:r.text});
     }
   });
-  if(goodResps.length < 2) return;
+  // Need at least 2 providers attempted, even if only 1 succeeded
+  var attempted = Object.keys(turn.responses).length;
+  if(attempted < 2 || goodResps.length < 1) return;
+  // If only 1 succeeded, show a note instead of synthesis
+  if(goodResps.length === 1){
+    var synthId0 = 'synth'+ti;
+    var container0 = document.getElementById('tr'+ti);
+    if(container0){
+      var note = document.createElement('div');
+      note.className = 'synth-card';
+      note.style.background = 'rgba(224,155,61,.05)';
+      note.style.borderColor = 'rgba(224,155,61,.2)';
+      note.innerHTML = '<div class="synth-hd" style="color:#e09b3d"><span>⚠</span>'
+        + '<span class="synth-hd-title" style="color:#e09b3d">統合回答スキップ: 成功した回答が1件のみ（'+goodResps[0].name+'）</span></div>';
+      container0.appendChild(note);
+    }
+    return;
+  }
 
   var synthId = 'synth'+ti;
   var container = document.getElementById('tr'+ti);
