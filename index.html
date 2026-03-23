@@ -401,7 +401,7 @@ textarea.fc{resize:vertical;min-height:70px}
 var PV = {
   claude:   {id:'claude',   name:'Claude',    em:'🟠', color:'#d97757', models:['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001'], def:'claude-sonnet-4-6'},
   openai:   {id:'openai',   name:'ChatGPT',   em:'🟢', color:'#10a37f', models:['gpt-4o','gpt-4o-mini','o1-mini'],                                 def:'gpt-4o'},
-  gemini:   {id:'gemini',   name:'Gemini',    em:'🔵', color:'#4285f4', models:['gemini-2.5-flash-preview-04-17','gemini-2.5-pro-exp-03-25','gemini-2.0-flash','gemini-2.0-flash-lite','gemini-1.5-pro'], def:'gemini-2.5-flash-preview-04-17'},
+  gemini:   {id:'gemini',   name:'Gemini',    em:'🔵', color:'#4285f4', models:['gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash','gemini-2.0-flash-lite','gemini-1.5-flash'], def:'gemini-2.5-flash'},
   grok:     {id:'grok',     name:'Grok',      em:'⚫', color:'#c8c8c8', models:['grok-3','grok-3-mini','grok-2-latest'],                            def:'grok-3-mini'},
   deepseek: {id:'deepseek', name:'DeepSeek',  em:'🔷', color:'#4b6cf7', models:['deepseek-chat','deepseek-reasoner'],                               def:'deepseek-chat'},
   local:    {id:'local',    name:'Local AI',  em:'🖥',  color:'#9b59b6', models:['qwen3','llama3.2','gemma3','mistral','custom'],                    def:'qwen3'}
@@ -947,59 +947,66 @@ async function synthesize(conv, ti){
 }
 
 async function callGemini(msgs,model,key,sys){
-  // Gemini requires strict user/model alternation, starting with user
-  // Convert messages and ensure no consecutive same roles
+  // Strict user/model alternation - merge consecutive same roles
   var rawContents = msgs.map(function(m){
     return {role: m.role==='assistant'?'model':'user', parts:[{text: m.content||''}]};
   });
-  // De-duplicate consecutive same roles (keep last of each consecutive group)
   var contents = [];
   for(var i=0;i<rawContents.length;i++){
     var cur = rawContents[i];
     if(contents.length>0 && contents[contents.length-1].role===cur.role){
-      // Merge text instead of duplicate role
-      contents[contents.length-1].parts[0].text += ' '+cur.parts[0].text;  } else {
+      contents[contents.length-1].parts[0].text += ' ' + cur.parts[0].text;
+    } else {
       contents.push({role:cur.role, parts:[{text:cur.parts[0].text}]});
     }
   }
-  // Must start with user
   if(contents.length>0 && contents[0].role!=='user'){
     contents.unshift({role:'user', parts:[{text:'こんにちは'}]});
   }
   var body = {contents: contents};
-  if(sys) body.systemInstruction = {role:'user', parts:[{text:sys}]};
-  // Try models in order if one fails
-  var tryModels = [model, 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+  // systemInstruction: no role field, just parts array
+  if(sys) body.system_instruction = {parts:[{text:sys}]};
+
+  // Fallback order: newest stable → older stable
+  var tryModels = [];
+  if(tryModels.indexOf(model)<0) tryModels.push(model);
+  ['gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash'].forEach(function(m){if(tryModels.indexOf(m)<0)tryModels.push(m);});
+
   var lastErr = '';
   for(var mi=0; mi<tryModels.length; mi++){
     var m2 = tryModels[mi];
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/'+m2+':generateContent?key='+key;
-    try{
-      var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      if(!r.ok){
-        var em='HTTP '+r.status;
-        try{var ej=await r.json();if(ej.error)em=ej.error.message;}catch(x){}
-        // Model not found or not available → try next
-        if(em.indexOf('not found')>=0||em.indexOf('not supported')>=0||em.indexOf('no longer available')>=0){
-          log('Gemini: '+m2+' 利用不可 → 次のモデルへ','w');
-          lastErr=em; continue;
+    // Try v1 first, then v1beta
+    var apis = [
+      'https://generativelanguage.googleapis.com/v1/models/'+m2+':generateContent?key='+key,
+      'https://generativelanguage.googleapis.com/v1beta/models/'+m2+':generateContent?key='+key
+    ];
+    var succeeded = false;
+    for(var ai2=0; ai2<apis.length && !succeeded; ai2++){
+      try{
+        var r=await fetch(apis[ai2],{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        if(!r.ok){
+          var em='HTTP '+r.status;
+          try{var ej=await r.json();if(ej.error&&ej.error.message)em=ej.error.message;}catch(x){}
+          if(em.indexOf('not found')>=0||em.indexOf('not supported')>=0||em.indexOf('no longer available')>=0||em.indexOf('deprecated')>=0){
+            lastErr=em; break; // try next model
+          }
+          throw new Error(em);
         }
-        throw new Error(em);
+        var d=await r.json();
+        var text=(d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts&&d.candidates[0].content.parts[0]&&d.candidates[0].content.parts[0].text)||'';
+        if(mi>0||ai2>0) log('Gemini: '+m2+' ('+( ai2===0?'v1':'v1beta')+') で成功','o');
+        return text;
+      }catch(fe){
+        if(fe.message&&(fe.message.indexOf('not found')>=0||fe.message.indexOf('not supported')>=0)){
+          lastErr=fe.message; break;
+        }
+        if(ai2===apis.length-1) lastErr=fe.message; // save for next model
       }
-      var d=await r.json();
-      if(mi>0) log('Gemini: '+m2+' で成功','o');
-      return (d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts&&d.candidates[0].content.parts[0]&&d.candidates[0].content.parts[0].text)||'';
-    }catch(fe){
-      if(fe.message&&(fe.message.indexOf('not found')>=0||fe.message.indexOf('not supported')>=0)){
-        lastErr=fe.message; continue;
-      }
-      throw fe;
     }
   }
   throw new Error('Gemini: 全モデルが利用不可。'+lastErr);
 }
 
-// ═══ APP BUILDER ═══
 async function generateApp(){
   var spec=document.getElementById('spec-inp').value.trim();
   if(!spec){alert('仕様書を入力してください。');return;}
