@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 司令塔</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+:root{
+  --bg:#141414;--sf:#1e1e1e;--sf2:#272727;--sf3:#313131;
+  --bd:#3a3a3a;--bd2:#4a4a4a;
+  --tx:#ebebeb;--tx2:#a0a0a0;--tx3:#5a5a5a;
+  --ac:#d97757;--r:9px;--hh:52px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Noto Sans JP',-apple-system,sans-serif;background:var(--bg);color:var(--tx);font-size:14px}
+button{cursor:pointer;font-family:inherit}
+input,textarea,select{font-family:inherit;color:var(--tx)}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:3px}
+
+#app{display:flex;height:100vh;overflow:hidden}
+#sidebar{width:270px;background:var(--sf);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0;transition:width .25s;overflow:hidden}
+#sidebar.collapsed{width:0;border:none}
+#main{flex:1;display:flex;flex-direction:column;min-width:0}
+
+/* Sidebar */
+.sb-hd{padding:12px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.sb-logo{font-size:22px;flex-shrink:0}
+.sb-title{flex:1;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden}
+.sb-title small{display:block;font-size:10px;color:var(--tx3);font-weight:400}
+.ico{background:none;border:none;color:var(--tx3);padding:4px;border-radius:6px;font-size:16px;line-height:1}
+.ico:hover{color:var(--tx);background:var(--sf3)}
+
+.mode-tabs{display:flex;border-bottom:1px solid var(--bd);padding:0 8px;flex-shrink:0}
+.mtab{padding:8px 12px;background:none;border:none;color:var(--tx3);font-size:12px;font-weight:500;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
+.mtab.active{color:var(--tx);border-bottom-color:var(--ac)}
+.mtab:hover:not(.active){color:var(--tx2)}
+
+.sec-title{font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.7px;padding:8px 14px 4px;font-weight:600}
+.prow{display:flex;align-items:center;gap:8px;padding:5px 14px;transition:background .15s}
+.prow:hover{background:var(--sf2)}
+.prow input[type=checkbox]{width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:var(--ac)}
+.prow .pem{font-size:14px;flex-shrink:0}
+.prow .pnm{flex:1;font-size:12px;color:var(--tx2)}
+.prow select{font-size:10px;background:var(--bg);border:1px solid var(--bd);color:var(--tx2);border-radius:4px;padding:1px 3px;max-width:95px;cursor:pointer}
+.pdot{width:7px;height:7px;border-radius:50%;background:var(--bd2);flex-shrink:0}
+.pdot.ok{background:#4caf80;box-shadow:0 0 5px rgba(76,175,128,.4)}
+.pdot.err{background:#e05252}
+.pdot.busy{background:#e09b3d;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+.hist-scroll{flex:1;overflow-y:auto;padding:4px 0}
+.hitem{display:flex;align-items:center;gap:6px;padding:7px 14px;cursor:pointer;font-size:12px;color:var(--tx3);white-space:nowrap;overflow:hidden;transition:background .15s}
+.hitem:hover{background:var(--sf2);color:var(--tx2)}
+.hitem.active{background:var(--sf3);color:var(--tx)}
+.hitem span{flex:1;overflow:hidden;text-overflow:ellipsis}
+.hitem .hdel{opacity:0;background:none;border:none;color:var(--tx3);font-size:11px;padding:0 3px;flex-shrink:0}
+.hitem:hover .hdel{opacity:1}
+.hitem .hdel:hover{color:#e05252}
+
+.sb-foot{padding:8px 12px;border-top:1px solid var(--bd);display:flex;gap:6px;flex-shrink:0}
+.sfbtn{flex:1;background:none;border:1px solid var(--bd);color:var(--tx3);font-size:11px;padding:5px 8px;border-radius:6px;transition:all .15s}
+.sfbtn:hover{border-color:var(--ac);color:var(--ac)}
+
+#logp{height:100px;overflow-y:auto;background:var(--bg);border-top:1px solid var(--bd);padding:5px 10px;flex-shrink:0}
+.lbar{display:flex;justify-content:space-between;margin-bottom:2px}
+.lbar span{font-size:9px;color:var(--tx3);font-family:'JetBrains Mono',monospace}
+.lbar button{background:none;border:none;color:var(--tx3);font-size:9px;cursor:pointer}
+.ll{font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1.4;word-break:break-all}
+.li{color:#555}.ld{color:var(--ac)}.lw{color:#e09b3d}.le{color:#e05252}.lo{color:#4caf80}
+
+/* Header */
+#hdr{height:var(--hh);background:var(--sf);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 14px;gap:10px;flex-shrink:0;z-index:10}
+.htitle{font-size:13px;font-weight:600;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hr{margin-left:auto;display:flex;gap:6px;align-items:center;flex-shrink:0}
+.hbtn{background:none;border:1px solid var(--bd);color:var(--tx3);font-size:12px;padding:5px 12px;border-radius:7px;transition:all .15s;white-space:nowrap}
+.hbtn:hover{border-color:var(--ac);color:var(--ac)}
+.hbtn.on{border-color:var(--ac);color:var(--ac);background:rgba(217,119,87,.1)}
+.hbtn.pri{background:var(--ac);color:#fff;border-color:var(--ac)}
+.hbtn.pri:hover{box-shadow:0 0 14px rgba(217,119,87,.35)}
+
+/* Content */
+#content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#chat-view{display:flex;flex-direction:column;height:100%;overflow:hidden}
+#chat-scrl{flex:1;overflow-y:auto;padding:16px 14px 8px}
+#builder-view{display:none;flex-direction:column;height:100%;overflow:hidden}
+
+/* Welcome */
+.wl{text-align:center;padding:50px 20px;max-width:680px;margin:0 auto}
+.wl-logo{font-size:44px;margin-bottom:14px}
+.wl h2{font-size:22px;font-weight:300;margin-bottom:8px}
+.wl h2 strong{font-weight:600;color:var(--ac)}
+.wl p{color:var(--tx3);font-size:13px;line-height:1.7;margin-bottom:20px}
+.pv-badges{display:flex;flex-wrap:wrap;gap:7px;justify-content:center}
+.pvb{padding:5px 12px;border-radius:16px;font-size:12px;font-weight:500;border:1px solid}
+
+/* User message */
+.umsg{background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:11px 15px;margin-bottom:10px;font-size:13.5px;line-height:1.7}
+.umsg-hd{font-size:10px;color:var(--tx3);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+
+/* Response grid */
+.resp-grid{display:flex;gap:10px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:10px;margin-bottom:14px}
+.resp-grid.single{display:block}
+
+/* Response card */
+.rcard{background:var(--sf);border:1px solid var(--bd);border-radius:10px;min-width:300px;max-width:460px;flex:1;display:flex;flex-direction:column;overflow:hidden;animation:cin .25s ease;border-top-width:2px}
+@keyframes cin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.rchd{display:flex;align-items:center;gap:7px;padding:9px 13px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.rcem{font-size:15px}
+.rcnm{font-size:12px;font-weight:600;flex:1}
+.rcmd{font-size:10px;color:var(--tx3);font-family:'JetBrains Mono',monospace}
+.rctm{font-size:10px;color:var(--tx3)}
+.rcbody{padding:11px 13px;overflow-y:auto;flex:1;font-size:13px;line-height:1.75;max-height:380px}
+.rcft{display:flex;gap:4px;padding:7px 11px;border-top:1px solid var(--bd);flex-shrink:0}
+.rcbtn{background:none;border:1px solid var(--bd);color:var(--tx3);font-size:11px;padding:3px 7px;border-radius:5px;cursor:pointer;transition:all .15s}
+.rcbtn:hover{color:var(--tx);border-color:var(--bd2)}
+
+/* Tab view */
+.rtabs{display:flex;gap:1px;padding:0 4px;border-bottom:1px solid var(--bd);overflow-x:auto;flex-shrink:0}
+.rtab{padding:7px 13px;background:none;border:none;color:var(--tx3);font-size:12px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:all .15s}
+.rtab.active{color:var(--tx);border-bottom-color:var(--ac)}
+.rtab:hover:not(.active){color:var(--tx2)}
+.tabcontent{flex:1;overflow-y:auto;padding:13px 15px;font-size:13px;line-height:1.75}
+
+/* Thinking */
+.thinking{display:inline-flex;align-items:center;gap:5px;color:var(--tx3);font-size:12px;padding:5px 0}
+.tdots span{width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block;animation:dp 1.4s infinite;margin:0 1px}
+.tdots span:nth-child(2){animation-delay:.2s}
+.tdots span:nth-child(3){animation-delay:.4s}
+@keyframes dp{0%,60%,100%{opacity:.2;transform:scale(.8)}30%{opacity:1;transform:scale(1)}}
+
+/* Active provider tags */
+.apt-row{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:7px}
+.aptag{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:10px;font-size:11px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx2)}
+.aptag.keyed{border-color:rgba(217,119,87,.4)}
+
+/* Input */
+#inp-area{border-top:1px solid var(--bd);background:var(--sf);padding:10px 14px 12px;flex-shrink:0}
+.inp-inner{max-width:900px;margin:0 auto}
+.inp-box{display:flex;align-items:flex-end;gap:7px;background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:9px 11px;transition:border-color .2s,box-shadow .2s}
+.inp-box:focus-within{border-color:rgba(217,119,87,.4);box-shadow:0 0 0 3px rgba(217,119,87,.07)}
+.inp-box textarea{flex:1;background:none;border:none;outline:none;color:var(--tx);font-size:14px;line-height:1.6;resize:none;min-height:24px;max-height:140px}
+.inp-box textarea::placeholder{color:var(--tx3)}
+.inp-btns{display:flex;gap:4px;align-items:flex-end}
+.ibtn{width:33px;height:33px;display:flex;align-items:center;justify-content:center;background:none;border:none;color:var(--tx3);font-size:16px;border-radius:7px;transition:all .15s}
+.ibtn:hover{color:var(--tx);background:var(--sf3)}
+#sendbtn{width:33px;height:33px;display:flex;align-items:center;justify-content:center;background:var(--ac);border:none;color:#fff;font-size:13px;border-radius:8px;font-weight:700;transition:all .2s}
+#sendbtn:hover{box-shadow:0 0 14px rgba(217,119,87,.4);transform:scale(1.05)}
+#sendbtn.stop{background:#e05252}
+.inp-hint{font-size:10px;color:var(--tx3);margin-top:5px;text-align:center}
+
+/* Builder */
+.b-panes{display:flex;flex:1;overflow:hidden}
+.b-left{width:40%;border-right:1px solid var(--bd);display:flex;flex-direction:column}
+.b-right{flex:1;display:flex;flex-direction:column}
+.phd{padding:9px 14px;border-bottom:1px solid var(--bd);font-size:12px;font-weight:600;color:var(--tx2);display:flex;align-items:center;gap:7px;flex-shrink:0;background:var(--sf)}
+.phd-r{margin-left:auto;display:flex;gap:4px}
+.pbtn{background:none;border:1px solid var(--bd);color:var(--tx3);font-size:11px;padding:3px 9px;border-radius:5px;cursor:pointer;transition:all .15s}
+.pbtn:hover{color:var(--tx);border-color:var(--bd2)}
+.pbtn.pri{background:var(--ac);color:#fff;border-color:var(--ac)}
+.pbtn.pri:hover{box-shadow:0 0 12px rgba(217,119,87,.3)}
+.spec-ta{flex:1;background:var(--bg);border:none;outline:none;color:var(--tx);font-size:13px;line-height:1.7;padding:14px;resize:none}
+.code-ed{flex:1;background:#1a1a1a;overflow:auto}
+.code-ed pre{margin:0;padding:14px;min-height:100%;font-size:12px}
+
+.flist{max-height:180px;overflow-y:auto;border-top:1px solid var(--bd)}
+.fentry{display:flex;align-items:center;gap:7px;padding:5px 13px;font-size:11px;color:var(--tx2);border-bottom:1px solid rgba(255,255,255,.03);cursor:pointer}
+.fentry:hover{background:var(--sf2)}
+.fentry.active{background:var(--sf3)}
+.fen{flex:1;font-family:'JetBrains Mono',monospace;font-size:11px}
+.fesz{color:var(--tx3);font-size:10px}
+.fedel{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:11px;padding:0 4px}
+.fedel:hover{color:#e05252}
+
+/* GitHub panel */
+#gh-panel{border-top:1px solid var(--bd);flex-shrink:0;background:var(--sf)}
+.gh-hd{display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:600;color:var(--tx2);user-select:none}
+.gh-hd:hover{color:var(--tx)}
+.gh-body{padding:10px 14px 14px;display:flex;flex-direction:column;gap:8px;display:none}
+.gh-row{display:flex;gap:8px;align-items:center}
+.gh-lbl{font-size:11px;color:var(--tx3);width:70px;flex-shrink:0}
+.gh-inp{flex:1;background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:12px;padding:5px 8px;outline:none}
+.gh-inp:focus{border-color:rgba(217,119,87,.4)}
+.gh-acts{display:flex;gap:6px;margin-top:4px}
+.ghbtn{flex:1;padding:7px 12px;border-radius:7px;font-size:12px;font-weight:500;border:1px solid var(--bd);cursor:pointer;transition:all .2s;font-family:inherit;background:none;color:var(--tx2)}
+.ghbtn:hover{background:var(--sf3)}
+.ghbtn.push{background:var(--ac);color:#fff;border-color:var(--ac)}
+.ghbtn.push:hover{box-shadow:0 0 14px rgba(217,119,87,.3)}
+#gh-stat{margin-top:4px;font-size:11px;padding:6px 10px;border-radius:6px;display:none}
+.gs-ok{background:rgba(76,175,128,.1);color:#4caf80;border:1px solid rgba(76,175,128,.2)}
+.gs-err{background:rgba(224,82,82,.1);color:#e05252;border:1px solid rgba(224,82,82,.2)}
+.gs-wt{background:rgba(224,155,61,.1);color:#e09b3d;border:1px solid rgba(224,155,61,.2)}
+
+/* Modal */
+.mbg{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9000;display:flex;align-items:center;justify-content:center}
+.mbox{background:var(--sf);border:1px solid var(--bd);border-radius:14px;width:90%;max-width:540px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+.mtop{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.mtop h3{font-size:16px;font-weight:600}
+.mcls{background:none;border:none;color:var(--tx3);font-size:20px;padding:2px 6px;border-radius:5px;line-height:1}
+.mcls:hover{color:var(--tx);background:var(--sf3)}
+.mbody{overflow-y:auto;padding:16px 20px;flex:1}
+.mfoot{display:flex;gap:8px;padding:12px 20px;border-top:1px solid var(--bd);flex-shrink:0}
+.fg{margin-bottom:13px}
+.fg label{display:block;font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.fc{width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;outline:none}
+.fc:focus{border-color:rgba(217,119,87,.4)}
+textarea.fc{resize:vertical;min-height:70px}
+.fhint{font-size:10px;color:var(--tx3);margin-top:3px}
+.btn{padding:7px 16px;border-radius:7px;font-size:13px;font-weight:500;border:1px solid var(--bd);cursor:pointer;transition:all .2s;font-family:inherit}
+.btn-p{background:var(--ac);color:#fff;border-color:var(--ac)}
+.btn-p:hover{box-shadow:0 0 12px rgba(217,119,87,.3)}
+.btn-s{background:none;color:var(--tx2)}
+.btn-s:hover{background:var(--sf3)}
+
+/* Markdown */
+.md h1,.md h2,.md h3{font-weight:600;margin:9px 0 5px;color:var(--tx)}
+.md h1{font-size:1.4em}.md h2{font-size:1.2em}.md h3{font-size:1.05em}
+.md p{margin:5px 0}
+.md ul,.md ol{padding-left:18px;margin:5px 0}
+.md li{margin:2px 0}
+.md blockquote{border-left:3px solid var(--ac);padding-left:11px;color:var(--tx2);margin:6px 0;font-style:italic}
+.md table{border-collapse:collapse;width:100%;margin:7px 0;font-size:12px}
+.md th,.md td{border:1px solid var(--bd);padding:5px 9px;text-align:left}
+.md th{background:var(--sf2);font-weight:600}
+.md a{color:var(--ac);text-decoration:none}
+.md a:hover{text-decoration:underline}
+.md code:not([class]){font-family:'JetBrains Mono',monospace;background:var(--sf3);padding:1px 5px;border-radius:4px;font-size:12px;color:#e8a87c}
+.md pre{background:#1a1a1a;border-radius:7px;overflow-x:auto;margin:7px 0;border:1px solid var(--bd)}
+.md pre code{font-size:12px!important;background:transparent!important}
+.md strong{font-weight:600}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- SIDEBAR -->
+<aside id="sidebar">
+  <div class="sb-hd">
+    <span class="sb-logo">🎯</span>
+    <div class="sb-title">AI 司令塔<small>Universal Command Center</small></div>
+    <button class="ico" id="sb-col">◀</button>
+  </div>
+  <div class="mode-tabs">
+    <button class="mtab active" data-mode="chat">💬 チャット</button>
+    <button class="mtab" data-mode="builder">🚀 AppBuilder</button>
+  </div>
+  <div class="sec-title">AIプロバイダー</div>
+  <div id="provlist"></div>
+  <div class="sec-title" style="margin-top:4px">履歴</div>
+  <div class="hist-scroll" id="histlist"></div>
+  <div id="logp">
+    <div class="lbar"><span>▸ LOG</span><button id="logclr">clear</button></div>
+    <div id="logc"></div>
+  </div>
+  <div class="sb-foot">
+    <button class="sfbtn" id="new-btn">＋ 新規</button>
+    <button class="sfbtn" id="cfg-btn">⚙ 設定</button>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div id="main">
+  <header id="hdr">
+    <button class="ico" id="sb-tog" style="font-size:18px;padding:5px">☰</button>
+    <span class="htitle" id="htitle">AI 司令塔</span>
+    <div class="hr">
+      <button class="hbtn pri" id="all-btn">⚡ 全AI一斉</button>
+      <button class="hbtn on" id="vcard-btn">⊟ カード</button>
+      <button class="hbtn" id="vtab-btn">◫ タブ</button>
+    </div>
+  </header>
+
+  <div id="content">
+    <!-- CHAT VIEW -->
+    <div id="chat-view">
+      <div id="chat-scrl">
+        <div id="welcome" class="wl">
+          <div class="wl-logo">🎯</div>
+          <h2>AI <strong>司令塔</strong></h2>
+          <p>複数のAIに同時に指令を出して回答を比較・活用できます。<br>サイドバーでプロバイダーを選択し、⚙設定でAPIキーを入力してください。</p>
+          <div class="pv-badges" id="pvbadges"></div>
+        </div>
+        <div id="chat-msgs"></div>
+      </div>
+      <div id="inp-area">
+        <div class="inp-inner">
+          <div class="apt-row" id="apt-row"></div>
+          <div class="inp-box">
+            <textarea id="userinput" placeholder="選択中のAIに一斉送信… (Shift+Enterで改行)" rows="1"></textarea>
+            <div class="inp-btns">
+              <button class="ibtn" id="filebtn">📎</button>
+              <input type="file" id="fileinp" multiple accept="image/*,.pdf" style="display:none">
+              <button id="sendbtn">▶</button>
+            </div>
+          </div>
+          <div class="inp-hint">Enter で一斉送信 · Shift+Enter で改行 · カードまたはタブで回答比較</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BUILDER VIEW -->
+    <div id="builder-view">
+      <div class="b-panes">
+        <div class="b-left">
+          <div class="phd">
+            📋 仕様書
+            <div class="phd-r">
+              <select id="gen-sel" style="font-size:11px;background:var(--bg);border:1px solid var(--bd);color:var(--tx2);border-radius:5px;padding:2px 6px;cursor:pointer"></select>
+              <button class="pbtn pri" id="gen-btn">⚡ 生成</button>
+            </div>
+          </div>
+          <textarea class="spec-ta" id="spec-inp" placeholder="アプリの仕様を記述してください。&#10;&#10;例：&#10;- タイトル: 家計簿アプリ&#10;- 機能: 収入・支出の記録、月別グラフ&#10;- デザイン: ダークテーマ、モバイル対応&#10;- 技術: Single HTML file (vanilla JS)"></textarea>
+          <div class="phd" style="border-top:1px solid var(--bd)">
+            📁 ファイル
+            <div class="phd-r"><button class="pbtn" id="addfile-btn">＋ 追加</button></div>
+          </div>
+          <div class="flist" id="flist"></div>
+        </div>
+        <div class="b-right">
+          <div class="phd">
+            💻 コード
+            <span id="curfile" style="color:var(--ac);font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:6px"></span>
+            <div class="phd-r">
+              <button class="pbtn" id="prev-btn">👁 プレビュー</button>
+              <button class="pbtn" id="cpcode-btn">📋 コピー</button>
+            </div>
+          </div>
+          <div class="code-ed" id="code-ed">
+            <pre><code id="code-disp" class="hljs">// アプリ生成後にコードが表示されます</code></pre>
+          </div>
+          <!-- GitHub panel -->
+          <div id="gh-panel">
+            <div class="gh-hd" id="gh-tog">🐙 GitHub Push <span id="gh-arr" style="margin-left:auto;font-size:11px">▼</span></div>
+            <div class="gh-body" id="gh-body">
+              <div class="gh-row"><span class="gh-lbl">Token</span><input class="gh-inp" type="password" id="gh-token" placeholder="ghp_xxxx..."></div>
+              <div class="gh-row"><span class="gh-lbl">Owner/Repo</span><input class="gh-inp" id="gh-repo" placeholder="hideo-t/myapp"></div>
+              <div class="gh-row">
+                <span class="gh-lbl">Branch</span><input class="gh-inp" id="gh-branch" value="main" style="max-width:80px">
+                <span class="gh-lbl" style="margin-left:8px">Commit</span><input class="gh-inp" id="gh-commit" value="Add generated app">
+              </div>
+              <div class="gh-acts">
+                <button class="ghbtn" id="gh-fetch">📂 ファイル一覧</button>
+                <button class="ghbtn push" id="gh-push">🚀 Push → Pages</button>
+              </div>
+              <div id="gh-stat"></div>
+              <div id="gh-url" style="font-size:11px;color:var(--ac);margin-top:5px;display:none"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="mbg" id="cfg-modal" style="display:none">
+  <div class="mbox">
+    <div class="mtop"><h3>⚙ 設定</h3><button class="mcls" id="cfg-cls">✕</button></div>
+    <div class="mbody" id="cfg-mbody"></div>
+    <div class="mfoot"><span style="flex:1"></span><button class="btn btn-s" id="cfg-cancel">キャンセル</button><button class="btn btn-p" id="cfg-save">保存</button></div>
+  </div>
+</div>
+
+<!-- ADD FILE MODAL -->
+<div class="mbg" id="af-modal" style="display:none">
+  <div class="mbox" style="max-width:400px">
+    <div class="mtop"><h3>📄 ファイル追加</h3><button class="mcls" id="af-cls">✕</button></div>
+    <div class="mbody">
+      <div class="fg"><label>ファイル名</label><input class="fc" id="af-name" placeholder="index.html, style.css ..."></div>
+      <div class="fg"><label>内容（空=現在のコードエディタを使用）</label><textarea class="fc" id="af-content" style="min-height:80px" placeholder="空白にすると現在のコードが入ります"></textarea></div>
+    </div>
+    <div class="mfoot"><span style="flex:1"></span><button class="btn btn-s" id="af-cancel">キャンセル</button><button class="btn btn-p" id="af-save">追加</button></div>
+  </div>
+</div>
+
+<!-- PREVIEW MODAL -->
+<div class="mbg" id="prev-modal" style="display:none">
+  <div class="mbox" style="max-width:92vw;width:92vw;max-height:92vh;height:92vh">
+    <div class="mtop" style="padding:10px 16px"><h3>👁 プレビュー</h3><button class="mcls" id="prev-cls">✕</button></div>
+    <div style="flex:1;overflow:hidden"><iframe id="prev-iframe" sandbox="allow-scripts allow-same-origin" style="width:100%;height:100%;border:none;background:#fff;display:block"></iframe></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ═══ PROVIDERS ═══
+var PV = {
+  claude:   {id:'claude',   name:'Claude',    em:'🟠', color:'#d97757', models:['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001'], def:'claude-sonnet-4-6'},
+  openai:   {id:'openai',   name:'ChatGPT',   em:'🟢', color:'#10a37f', models:['gpt-4o','gpt-4o-mini','o1-mini'],                                 def:'gpt-4o'},
+  gemini:   {id:'gemini',   name:'Gemini',    em:'🔵', color:'#4285f4', models:['gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'],             def:'gemini-2.0-flash'},
+  grok:     {id:'grok',     name:'Grok',      em:'⚫', color:'#c8c8c8', models:['grok-3','grok-3-mini','grok-2-latest'],                            def:'grok-3-mini'},
+  deepseek: {id:'deepseek', name:'DeepSeek',  em:'🔷', color:'#4b6cf7', models:['deepseek-chat','deepseek-reasoner'],                               def:'deepseek-chat'},
+  local:    {id:'local',    name:'Local AI',  em:'🖥',  color:'#9b59b6', models:['qwen3','llama3.2','gemma3','mistral','custom'],                    def:'qwen3'}
+};
+
+// ═══ STATE ═══
+var S = {
+  keys:{}, sel:{claude:true}, models:{}, sysPrompt:'', localEP:'http://localhost:11434',
+  convs:[], curId:null, busy:false, viewMode:'cards', mode:'chat',
+  files:{}, curFile:'index.html',
+  ghToken:'', ghRepo:'', ghBranch:'main', ghCommit:'Add generated app'
+};
+var _cs={}, _mi=0;
+
+// ═══ INIT ═══
+function init(){
+  load();
+  bindAll();
+  renderProviders();
+  renderBadges();
+  renderHistory();
+  updateTags();
+  fillGenSel();
+  if(typeof marked!=='undefined') marked.setOptions({breaks:true,gfm:true});
+  log('AI司令塔 起動','o');
+  Object.keys(S.keys).forEach(function(k){if(S.keys[k])log(k+' key設定済','o');});
+  document.getElementById('userinput').focus();
+  switchMode('chat');
+}
+
+// ═══ PERSIST ═══
+function load(){
+  try{
+    var r=localStorage.getItem('aicc2');
+    if(!r)return;
+    var p=JSON.parse(r);
+    S.keys=p.keys||{}; S.sel=p.sel||{claude:true}; S.models=p.models||{};
+    S.sysPrompt=p.sysPrompt||''; S.localEP=p.localEP||'http://localhost:11434';
+    S.convs=p.convs||[]; S.curId=p.curId||null;
+    S.files=p.files||{}; S.curFile=p.curFile||'index.html';
+    S.ghToken=p.ghToken||''; S.ghRepo=p.ghRepo||'';
+    S.ghBranch=p.ghBranch||'main'; S.ghCommit=p.ghCommit||'Add generated app';
+  }catch(e){log('load err: '+e.message,'e');}
+}
+function save(){
+  try{localStorage.setItem('aicc2',JSON.stringify({keys:S.keys,sel:S.sel,models:S.models,sysPrompt:S.sysPrompt,localEP:S.localEP,convs:S.convs,curId:S.curId,files:S.files,curFile:S.curFile,ghToken:S.ghToken,ghRepo:S.ghRepo,ghBranch:S.ghBranch,ghCommit:S.ghCommit}));}
+  catch(e){log('save err: '+e.message,'e');}
+}
+
+// ═══ LOG ═══
+function log(msg,t){
+  var el=document.getElementById('logc'); if(!el)return;
+  var d=document.createElement('div'); d.className='ll l'+(t||'i')[0];
+  d.textContent=new Date().toLocaleTimeString('ja-JP',{hour12:false})+' '+msg;
+  el.appendChild(d);
+  var p=document.getElementById('logp'); if(p)p.scrollTop=p.scrollHeight;
+}
+
+// ═══ BIND ═══
+function bindAll(){
+  // Sidebar/layout
+  document.getElementById('sb-col').addEventListener('click',function(){document.getElementById('sidebar').classList.toggle('collapsed');});
+  document.getElementById('sb-tog').addEventListener('click',function(){document.getElementById('sidebar').classList.toggle('collapsed');});
+  document.getElementById('new-btn').addEventListener('click',newConv);
+  document.getElementById('cfg-btn').addEventListener('click',openCfg);
+  document.getElementById('logclr').addEventListener('click',function(){document.getElementById('logc').innerHTML='';});
+  // Mode tabs
+  document.querySelectorAll('.mtab').forEach(function(t){t.addEventListener('click',function(){switchMode(t.dataset.mode);});});
+  // Header
+  document.getElementById('all-btn').addEventListener('click',broadcastAll);
+  document.getElementById('vcard-btn').addEventListener('click',function(){setView('cards');});
+  document.getElementById('vtab-btn').addEventListener('click',function(){setView('tabs');});
+  // Input
+  document.getElementById('sendbtn').addEventListener('click',send);
+  document.getElementById('userinput').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  document.getElementById('userinput').addEventListener('input',function(){ar(this);});
+  document.getElementById('filebtn').addEventListener('click',function(){document.getElementById('fileinp').click();});
+  // Settings modal
+  document.getElementById('cfg-cls').addEventListener('click',closeCfg);
+  document.getElementById('cfg-cancel').addEventListener('click',closeCfg);
+  document.getElementById('cfg-save').addEventListener('click',saveCfg);
+  document.getElementById('cfg-modal').addEventListener('click',function(e){if(e.target===this)closeCfg();});
+  // Builder
+  document.getElementById('gen-btn').addEventListener('click',generateApp);
+  document.getElementById('prev-btn').addEventListener('click',showPreview);
+  document.getElementById('cpcode-btn').addEventListener('click',cpCode);
+  document.getElementById('addfile-btn').addEventListener('click',openAF);
+  document.getElementById('af-cls').addEventListener('click',closeAF);
+  document.getElementById('af-cancel').addEventListener('click',closeAF);
+  document.getElementById('af-save').addEventListener('click',saveAF);
+  document.getElementById('af-modal').addEventListener('click',function(e){if(e.target===this)closeAF();});
+  document.getElementById('prev-cls').addEventListener('click',function(){document.getElementById('prev-modal').style.display='none';});
+  document.getElementById('prev-modal').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
+  // GitHub
+  document.getElementById('gh-tog').addEventListener('click',toggleGH);
+  document.getElementById('gh-push').addEventListener('click',ghPush);
+  document.getElementById('gh-fetch').addEventListener('click',ghFetch);
+}
+
+// ═══ PROVIDERS ═══
+function renderProviders(){
+  var h='';
+  Object.values(PV).forEach(function(pv){
+    var chk=S.sel[pv.id]?'checked':'';
+    var m=S.models[pv.id]||pv.def;
+    var opts=pv.models.map(function(x){return '<option value="'+x+'"'+(x===m?' selected':'')+'>'+x+'</option>';}).join('');
+    var dot=S.keys[pv.id]?'ok':'';
+    h+='<div class="prow"><input type="checkbox" data-pid="'+pv.id+'"'+(chk?' checked':'')+'>'
+      +'<span class="pem">'+pv.em+'</span><span class="pnm">'+pv.name+'</span>'
+      +'<select data-pid="'+pv.id+'">'+opts+'</select>'
+      +'<span class="pdot '+dot+'" id="pd-'+pv.id+'"></span></div>';
+  });
+  document.getElementById('provlist').innerHTML=h;
+  document.querySelectorAll('#provlist input[type=checkbox]').forEach(function(cb){
+    cb.addEventListener('change',function(){S.sel[cb.dataset.pid]=cb.checked;save();updateTags();});
+  });
+  document.querySelectorAll('#provlist select').forEach(function(sel){
+    sel.addEventListener('change',function(){S.models[sel.dataset.pid]=sel.value;save();});
+  });
+}
+function renderBadges(){
+  var h=Object.values(PV).map(function(pv){return '<span class="pvb" style="color:'+pv.color+';border-color:'+pv.color+'40;background:'+pv.color+'15">'+pv.em+' '+pv.name+'</span>';}).join('');
+  var el=document.getElementById('pvbadges'); if(el)el.innerHTML=h;
+}
+function updateTags(){
+  var act=getActive();
+  var h=act.length?act.map(function(pid){var pv=PV[pid];var k=!!S.keys[pid];return '<span class="aptag'+(k?' keyed':'')+'" style="'+(k?'border-color:'+pv.color+'50;color:'+pv.color:'')+'">'+pv.em+' '+pv.name+(k?'':' ⚠')+'</span>';}).join('')
+    :'<span style="font-size:11px;color:var(--tx3)">← プロバイダーを選択してください</span>';
+  document.getElementById('apt-row').innerHTML=h;
+  var sb=document.getElementById('sendbtn');
+  sb.disabled=act.length===0||S.busy;
+}
+function getActive(){return Object.keys(S.sel).filter(function(k){return S.sel[k];});}
+function setPdot(pid,s){var el=document.getElementById('pd-'+pid);if(el)el.className='pdot'+(s?' '+s:'');}
+function fillGenSel(){
+  var h='';
+  Object.values(PV).forEach(function(pv){
+    var m=S.models[pv.id]||pv.def;
+    h+='<option value="'+pv.id+':'+m+'">'+pv.em+' '+pv.name+' / '+m+'</option>';
+  });
+  document.getElementById('gen-sel').innerHTML=h;
+}
+
+// ═══ MODE / VIEW ═══
+function switchMode(m){
+  S.mode=m;
+  document.querySelectorAll('.mtab').forEach(function(t){t.classList.toggle('active',t.dataset.mode===m);});
+  document.getElementById('chat-view').style.display=m==='chat'?'flex':'none';
+  document.getElementById('builder-view').style.display=m==='builder'?'flex':'none';
+  document.getElementById('inp-area').style.display=m==='chat'?'block':'none';
+  if(m==='builder')renderFiles();
+}
+function setView(v){
+  S.viewMode=v;
+  document.getElementById('vcard-btn').classList.toggle('on',v==='cards');
+  document.getElementById('vtab-btn').classList.toggle('on',v==='tabs');
+  renderConv();
+}
+
+// ═══ CONVERSATIONS ═══
+function newConv(){
+  var id='c'+Date.now();
+  S.convs.unshift({id:id,title:'新しいチャット',turns:[]});
+  S.curId=id; save(); renderHistory(); renderConv();
+  document.getElementById('userinput').value='';
+  document.getElementById('userinput').focus();
+}
+function loadConv(id){S.curId=id;save();renderHistory();renderConv();}
+function delConv(id){
+  S.convs=S.convs.filter(function(c){return c.id!==id;});
+  if(S.curId===id)S.curId=S.convs.length?S.convs[0].id:null;
+  save();renderHistory();renderConv();
+}
+function getCur(){return S.convs.find(function(c){return c.id===S.curId;})||null;}
+function renderHistory(){
+  var h=S.convs.map(function(c){
+    var a=c.id===S.curId?' active':'';
+    return '<div class="hitem'+a+'" data-cid="'+c.id+'"><span style="font-size:11px">💬</span><span>'+escH(c.title)+'</span><button class="hdel" data-d="'+c.id+'">✕</button></div>';
+  }).join('');
+  var el=document.getElementById('histlist');
+  el.innerHTML=h;
+  el.addEventListener('click',function(e){
+    var d=e.target.closest('[data-d]'); if(d){e.stopPropagation();if(confirm('削除?'))delConv(d.dataset.d);return;}
+    var it=e.target.closest('.hitem'); if(it)loadConv(it.dataset.cid);
+  });
+}
+
+// ═══ RENDER MESSAGES ═══
+function renderConv(){
+  var conv=getCur();
+  document.getElementById('welcome').style.display=conv?'none':'block';
+  var msgs=document.getElementById('chat-msgs');
+  if(!conv){msgs.innerHTML='';return;}
+  msgs.innerHTML='';
+  conv.turns.forEach(function(turn,ti){
+    var u=document.createElement('div');
+    u.className='umsg';
+    u.innerHTML='<div class="umsg-hd">あなた</div>'+escH(turn.user).replace(/\n/g,'<br>');
+    msgs.appendChild(u);
+    var rd=document.createElement('div'); rd.id='tr'+ti; msgs.appendChild(rd);
+    renderTurn(rd,turn,ti,conv);
+  });
+  var sc=document.getElementById('chat-scrl'); sc.scrollTop=sc.scrollHeight;
+}
+
+function renderTurn(container,turn,ti,conv){
+  var pids=Object.keys(turn.responses); if(!pids.length)return;
+  if(S.viewMode==='tabs'){
+    var th='<div class="rtabs">';
+    pids.forEach(function(pid,i){var pv=PV[pid]||{em:'?',name:pid};th+='<button class="rtab'+(i===0?' active':'')+'" data-pid="'+pid+'" data-ti="'+ti+'">'+pv.em+' '+pv.name+'</button>';});
+    th+='</div><div id="tb'+ti+'"></div>';
+    container.innerHTML=th;
+    container.querySelectorAll('.rtab').forEach(function(t){
+      t.addEventListener('click',function(){
+        container.querySelectorAll('.rtab').forEach(function(x){x.classList.remove('active');});
+        t.classList.add('active');
+        fillTab(document.getElementById('tb'+ti),turn.responses[t.dataset.pid],t.dataset.pid);
+      });
+    });
+    fillTab(document.getElementById('tb'+ti),turn.responses[pids[0]],pids[0]);
+  } else {
+    var g=document.createElement('div');
+    g.className='resp-grid'+(pids.length===1?' single':'');
+    pids.forEach(function(pid){g.appendChild(mkCard(pid,turn.responses[pid],ti,conv));});
+    container.appendChild(g);
+  }
+}
+
+function fillTab(el,resp,pid){
+  if(!el)return;
+  var pv=PV[pid]||{name:pid,color:'#888'};
+  if(resp&&resp.done){
+    el.innerHTML='<div class="tabcontent"><div class="md">'+sanitize(mdRender(resp.text||'',pid))+'</div>'
+      +'<div style="margin-top:7px;display:flex;gap:5px">'
+      +'<button class="rcbtn" data-cp="'+escA(resp.text||'')+'">📋 コピー</button>'
+      +(resp.ms?'<span style="font-size:10px;color:var(--tx3);align-self:center">⏱ '+resp.ms+'ms</span>':'')
+      +'<button class="rcbtn" data-uc="1">💻 コードを使う</button>'
+      +'</div></div>';
+    el.querySelectorAll('[data-cp]').forEach(function(b){b.addEventListener('click',function(){cp(b.dataset.cp,b);});});
+    el.querySelectorAll('[data-uc]').forEach(function(b){b.addEventListener('click',function(){useCode(resp.text);});});
+    if(typeof hljs!=='undefined')el.querySelectorAll('pre code:not(.hljs)').forEach(function(c){hljs.highlightElement(c);});
+  } else {
+    el.innerHTML='<div class="tabcontent"><div class="thinking"><span style="color:'+pv.color+'">'+pv.name+'</span>が回答中<span class="tdots"><span></span><span></span><span></span></span></div></div>';
+  }
+}
+
+function mkCard(pid,resp,ti,conv){
+  var pv=PV[pid]||{em:'?',name:pid,color:'#888'};
+  var card=document.createElement('div');
+  card.className='rcard'; card.id='rc'+ti+'_'+pid;
+  card.style.borderTopColor=pv.color;
+  var model=S.models[pid]||pv.def||'';
+  var hd='<div class="rchd"><span class="rcem">'+pv.em+'</span><span class="rcnm" style="color:'+pv.color+'">'+pv.name+'</span><span class="rcmd">'+model+'</span>'+(resp&&resp.ms?'<span class="rctm">'+resp.ms+'ms</span>':'')+'</div>';
+  if(resp&&resp.done){
+    card.innerHTML=hd+'<div class="rcbody"><div class="md">'+sanitize(mdRender(resp.text||'',pid))+'</div></div>'
+      +'<div class="rcft"><button class="rcbtn" data-cp="'+escA(resp.text||'')+'">📋 コピー</button><button class="rcbtn" data-uc="1">💻 コードを使う</button></div>';
+    card.querySelectorAll('[data-cp]').forEach(function(b){b.addEventListener('click',function(){cp(b.dataset.cp,b);});});
+    card.querySelectorAll('[data-uc]').forEach(function(b){b.addEventListener('click',function(){useCode(resp.text);});});
+    if(typeof hljs!=='undefined')card.querySelectorAll('pre code:not(.hljs)').forEach(function(c){hljs.highlightElement(c);});
+  } else {
+    card.innerHTML=hd+'<div class="rcbody"><div class="thinking">回答中<span class="tdots"><span></span><span></span><span></span></span></div></div>';
+  }
+  return card;
+}
+
+function updateCard(pid,ti,resp){
+  if(S.viewMode==='tabs'){
+    var tb=document.getElementById('tb'+ti); if(!tb)return;
+    var conv=getCur(); if(!conv||!conv.turns[ti])return;
+    var tabs=tb.parentElement.querySelectorAll('.rtab');
+    var active=null; tabs.forEach(function(t){if(t.classList.contains('active'))active=t.dataset.pid;});
+    if(active===pid)fillTab(tb,resp,pid);
+  } else {
+    var card=document.getElementById('rc'+ti+'_'+pid);
+    if(!card)return;
+    var pv=PV[pid]||{em:'?',name:pid,color:'#888'};
+    var model=S.models[pid]||pv.def||'';
+    var hd='<div class="rchd"><span class="rcem">'+pv.em+'</span><span class="rcnm" style="color:'+pv.color+'">'+pv.name+'</span><span class="rcmd">'+model+'</span>'+(resp&&resp.ms?'<span class="rctm">'+resp.ms+'ms</span>':'')+'</div>';
+    if(resp&&resp.done){
+      card.innerHTML=hd+'<div class="rcbody"><div class="md">'+sanitize(mdRender(resp.text||'',pid))+'</div></div>'
+        +'<div class="rcft"><button class="rcbtn" data-cp="'+escA(resp.text||'')+'">📋 コピー</button><button class="rcbtn" data-uc="1">💻 コードを使う</button></div>';
+      card.querySelectorAll('[data-cp]').forEach(function(b){b.addEventListener('click',function(){cp(b.dataset.cp,b);});});
+      card.querySelectorAll('[data-uc]').forEach(function(b){b.addEventListener('click',function(){useCode(resp.text);});});
+      if(typeof hljs!=='undefined')card.querySelectorAll('pre code:not(.hljs)').forEach(function(c){hljs.highlightElement(c);});
+    } else {
+      card.innerHTML=hd+'<div class="rcbody"><div class="thinking">回答中<span class="tdots"><span></span><span></span><span></span></span></div></div>';
+    }
+  }
+}
+
+// ═══ SEND ═══
+async function send(){
+  if(S.busy)return;
+  var inp=document.getElementById('userinput'), text=inp.value.trim();
+  if(!text)return;
+  var act=getActive(); if(!act.length){openCfg();return;}
+  if(!S.curId)newConv();
+  var conv=getCur(); if(!conv)return;
+  var turn={user:text,responses:{}};
+  act.forEach(function(pid){turn.responses[pid]={text:'',done:false,ms:0};});
+  conv.turns.push(turn);
+  if(conv.turns.length===1)conv.title=text.slice(0,38)+(text.length>38?'…':'');
+  var ti=conv.turns.length-1;
+  inp.value=''; ar(inp); S.busy=true;
+  document.getElementById('sendbtn').classList.add('stop');
+  renderHistory(); renderConv();
+  log('一斉送信 → '+act.join(', '),'d');
+  var ps=act.map(function(pid){setPdot(pid,'busy');return callProv(pid,text,conv,ti);});
+  await Promise.allSettled(ps);
+  S.busy=false;
+  document.getElementById('sendbtn').classList.remove('stop');
+  act.forEach(function(pid){var ok=turn.responses[pid]&&turn.responses[pid].done&&!turn.responses[pid].error;setPdot(pid,ok?'ok':'err');});
+  save(); renderHistory();
+  log('完了','o');
+}
+
+async function broadcastAll(){
+  var prev=JSON.parse(JSON.stringify(S.sel));
+  Object.keys(PV).forEach(function(pid){S.sel[pid]=!!(S.keys[pid]);});
+  updateTags(); renderProviders();
+  await send();
+  S.sel=prev; updateTags(); renderProviders();
+}
+
+// ═══ PROVIDER CALLERS ═══
+async function callProv(pid,userText,conv,ti){
+  var t0=Date.now(), resp=conv.turns[ti].responses[pid];
+  try{
+    var key=S.keys[pid]||'';
+    if(!key&&pid!=='local'){
+      resp.text='⚠ APIキー未設定 — ⚙設定で入力してください';
+      resp.done=true;resp.error=true;updateCard(pid,ti,resp);return;
+    }
+    var model=S.models[pid]||PV[pid].def;
+    var msgs=buildMsgs(conv,ti,pid);
+    var text;
+    if(pid==='claude')     text=await callClaude(msgs,model,key,S.sysPrompt);
+    else if(pid==='gemini')text=await callGemini(msgs,model,key,S.sysPrompt);
+    else if(pid==='openai')text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.openai.com/v1/chat/completions');
+    else if(pid==='grok')  text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.x.ai/v1/chat/completions');
+    else if(pid==='deepseek')text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.deepseek.com/v1/chat/completions');
+    else if(pid==='local') text=await callOAI(msgs,model,'none',S.sysPrompt,(S.localEP||'http://localhost:11434')+'/v1/chat/completions');
+    resp.text=text||''; resp.done=true; resp.ms=Date.now()-t0;
+    log(pid+' '+resp.ms+'ms','d');
+  }catch(e){
+    resp.text='⚠ エラー: '+e.message; resp.done=true; resp.error=true;
+    log(pid+' ERR: '+e.message,'e');
+  }
+  updateCard(pid,ti,resp);
+}
+
+function buildMsgs(conv,ti,pid){
+  var msgs=[];
+  var start=Math.max(0,ti-8);
+  for(var i=start;i<ti;i++){
+    var t=conv.turns[i]; msgs.push({role:'user',content:t.user});
+    var ar2=t.responses[pid];
+    if(!ar2||!ar2.done||ar2.error){var ks=Object.keys(t.responses);for(var j=0;j<ks.length;j++){if(t.responses[ks[j]].done&&!t.responses[ks[j]].error){ar2=t.responses[ks[j]];break;}}}
+    if(ar2&&ar2.done&&!ar2.error)msgs.push({role:'assistant',content:ar2.text});
+  }
+  msgs.push({role:'user',content:conv.turns[ti].user});
+  return msgs;
+}
+
+async function callClaude(msgs,model,key,sys){
+  var FB=['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001'];
+  var si=FB.indexOf(model); if(si<0)si=0;
+  var body={model:model,max_tokens:8192,messages:msgs,stream:false};
+  if(sys)body.system=sys;
+  var r;
+  for(var i=si;i<FB.length;i++){
+    body.model=FB[i];
+    r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify(body)});
+    if(r.ok)break;
+    if(r.status===401)throw new Error('APIキー無効');
+    if(r.status!==429&&r.status!==529){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.error)em=ej.error.message;}catch(x){}throw new Error(em);}
+    log('Claude 529→待機5s→フォールバック','w'); await wait(5000);
+  }
+  if(!r.ok){var em2='HTTP '+r.status;try{var ej2=await r.json();if(ej2.error)em2=ej2.error.message;}catch(x2){}throw new Error(em2);}
+  var d=await r.json();
+  return (d.content||[]).filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('\n');
+}
+
+async function callOAI(msgs,model,key,sys,ep){
+  var m=[]; if(sys)m.push({role:'system',content:sys}); m=m.concat(msgs);
+  var r=await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:model,messages:m,max_tokens:8192})});
+  if(!r.ok){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.error)em=typeof ej.error==='string'?ej.error:ej.error.message;}catch(x){}throw new Error(em);}
+  var d=await r.json();
+  return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+}
+
+async function callGemini(msgs,model,key,sys){
+  var contents=msgs.map(function(m){return{role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]};});
+  var body={contents:contents}; if(sys)body.systemInstruction={parts:[{text:sys}]};
+  var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.error)em=ej.error.message;}catch(x){}throw new Error(em);}
+  var d=await r.json();
+  return (d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts&&d.candidates[0].content.parts[0]&&d.candidates[0].content.parts[0].text)||'';
+}
+
+// ═══ APP BUILDER ═══
+async function generateApp(){
+  var spec=document.getElementById('spec-inp').value.trim();
+  if(!spec){alert('仕様書を入力してください。');return;}
+  var sv=document.getElementById('gen-sel').value.split(':'), pid=sv[0], model=sv.slice(1).join(':');
+  var key=S.keys[pid];
+  if(!key&&pid!=='local'){alert('このプロバイダーのAPIキーが設定されていません。');openCfg();return;}
+  var btn=document.getElementById('gen-btn'); btn.disabled=true; btn.textContent='⏳…';
+  log('AppBuilder: '+pid+'/'+model,'d');
+  var prompt='以下の仕様書に基づき、完全に動作するWebアプリをシングルHTMLファイル（HTML+CSS+JS全部入り）として生成してください。必ず```html ... ```のコードブロックで出力してください。\n\n## 仕様書\n'+spec;
+  try{
+    var ms=[{role:'user',content:prompt}];
+    var sys='あなたはエキスパートWebデベロッパーです。仕様書通りの完全動作するシングルHTMLファイルを生成します。';
+    var text;
+    if(pid==='claude')text=await callClaude(ms,model,key,sys);
+    else if(pid==='gemini')text=await callGemini(ms,model,key,sys);
+    else text=await callOAI(ms,model,key,sys,'https://api.openai.com/v1/chat/completions');
+    var match=text.match(/```(?:html)?\n?([\s\S]*?)```/);
+    var code=match?match[1].trim():text.trim();
+    S.files['index.html']=code; S.curFile='index.html';
+    save(); renderFiles(); showCode(code,'index.html');
+    log('生成完了 '+code.length+'文字','o');
+  }catch(e){log('生成エラー: '+e.message,'e');alert('生成エラー: '+e.message);}
+  btn.disabled=false; btn.textContent='⚡ 生成';
+}
+
+function renderFiles(){
+  var h=Object.keys(S.files).map(function(fn){
+    var sz=new Blob([S.files[fn]]).size;
+    var szs=sz>1024?(sz/1024).toFixed(1)+'KB':sz+'B';
+    var a=fn===S.curFile?' active':'';
+    return '<div class="fentry'+a+'" data-fn="'+escA(fn)+'"><span class="fen">'+escH(fn)+'</span><span class="fesz">'+szs+'</span><button class="fedel" data-delfn="'+escA(fn)+'">✕</button></div>';
+  }).join('');
+  var el=document.getElementById('flist');
+  el.innerHTML=h;
+  el.querySelectorAll('.fentry').forEach(function(row){
+    row.addEventListener('click',function(e){
+      if(e.target.closest('[data-delfn]'))return;
+      S.curFile=row.dataset.fn; save(); renderFiles(); showCode(S.files[S.curFile]||'',S.curFile);
+    });
+  });
+  el.querySelectorAll('[data-delfn]').forEach(function(b){
+    b.addEventListener('click',function(e){
+      e.stopPropagation();
+      var fn=b.dataset.delfn;
+      if(!confirm(fn+'を削除しますか？'))return;
+      delete S.files[fn];
+      if(S.curFile===fn)S.curFile=Object.keys(S.files)[0]||'index.html';
+      save(); renderFiles(); showCode(S.files[S.curFile]||'',S.curFile);
+    });
+  });
+  showCode(S.files[S.curFile]||'',S.curFile);
+}
+
+function showCode(code,fn){
+  document.getElementById('curfile').textContent=fn||'';
+  var el=document.getElementById('code-disp');
+  var lang=(fn||'').split('.').pop()||'html';
+  el.className='hljs language-'+lang;
+  el.textContent=code||'';
+  if(typeof hljs!=='undefined')hljs.highlightElement(el);
+}
+
+function cpCode(){
+  var code=S.files[S.curFile]||'';
+  navigator.clipboard.writeText(code).then(function(){
+    var b=document.getElementById('cpcode-btn');b.textContent='✅';setTimeout(function(){b.textContent='📋 コピー';},2000);
+  });
+}
+
+function showPreview(){
+  var code=S.files[S.curFile]||S.files['index.html']||'';
+  if(!code){alert('プレビューするコードがありません。');return;}
+  document.getElementById('prev-iframe').srcdoc=code;
+  document.getElementById('prev-modal').style.display='flex';
+}
+
+function useCode(text){
+  var match=text.match(/```(?:html|js|javascript|css)?\n?([\s\S]*?)```/);
+  var code=match?match[1].trim():text.trim();
+  var lm=text.match(/```(html|js|javascript|css)/);
+  var ext=lm?(lm[1]==='javascript'||lm[1]==='js'?'js':lm[1]):'html';
+  var fn='generated.'+ext;
+  S.files[fn]=code; S.curFile=fn; save();
+  switchMode('builder'); renderFiles(); showCode(code,fn);
+}
+
+// File add modal
+function openAF(){
+  document.getElementById('af-name').value='';
+  document.getElementById('af-content').value='';
+  document.getElementById('af-modal').style.display='flex';
+}
+function closeAF(){document.getElementById('af-modal').style.display='none';}
+function saveAF(){
+  var name=document.getElementById('af-name').value.trim();
+  if(!name){alert('ファイル名を入力してください。');return;}
+  var content=document.getElementById('af-content').value||S.files[S.curFile]||'';
+  S.files[name]=content; S.curFile=name; save(); renderFiles(); showCode(content,name); closeAF();
+}
+
+// ═══ GITHUB ═══
+function toggleGH(){
+  var b=document.getElementById('gh-body'),a=document.getElementById('gh-arr');
+  var shown=b.style.display==='flex';
+  b.style.display=shown?'none':'flex';
+  a.textContent=shown?'▼':'▲';
+}
+function ghStat(t,msg){var el=document.getElementById('gh-stat');el.className='gs-'+t;el.textContent=msg;el.style.display='block';}
+
+async function ghFetch(){
+  var token=document.getElementById('gh-token').value.trim()||S.ghToken;
+  var repo=document.getElementById('gh-repo').value.trim()||S.ghRepo;
+  if(!token||!repo){alert('TokenとOwner/Repoを入力してください。');return;}
+  ghStat('wt','📂 取得中…');
+  try{
+    var r=await fetch('https://api.github.com/repos/'+repo+'/contents/',{headers:{'Authorization':'token '+token,'Accept':'application/vnd.github.v3+json'}});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    var files=await r.json();
+    var names=Array.isArray(files)?files.filter(function(f){return f.type==='file';}).map(function(f){return f.name;}).join(', '):'(取得失敗)';
+    ghStat('ok','✅ ファイル: '+names);
+  }catch(e){ghStat('err','❌ '+e.message);}
+}
+
+async function ghPush(){
+  var token=document.getElementById('gh-token').value.trim()||S.ghToken;
+  var repo=document.getElementById('gh-repo').value.trim()||S.ghRepo;
+  var branch=document.getElementById('gh-branch').value.trim()||'main';
+  var cmt=document.getElementById('gh-commit').value.trim()||'Add generated app';
+  S.ghToken=token; S.ghRepo=repo; S.ghBranch=branch; S.ghCommit=cmt; save();
+  if(!token||!repo){alert('GitHub Token と Owner/Repo を入力してください。');return;}
+  if(!Object.keys(S.files).length){alert('Pushするファイルがありません。');return;}
+  var btn=document.getElementById('gh-push'); btn.disabled=true; btn.textContent='⏳…';
+  ghStat('wt','🚀 Push中…');
+  log('GitHub push → '+repo,'d');
+  try{
+    var pushed=[];
+    for(var fn in S.files){
+      var content=S.files[fn];
+      var b64=btoa(unescape(encodeURIComponent(content)));
+      var sha=null;
+      try{var chk=await fetch('https://api.github.com/repos/'+repo+'/contents/'+fn,{headers:{'Authorization':'token '+token,'Accept':'application/vnd.github.v3+json'}});if(chk.ok){var ex=await chk.json();sha=ex.sha;}}catch(x){}
+      var body={message:cmt+' ('+fn+')',content:b64,branch:branch};
+      if(sha)body.sha=sha;
+      var r=await fetch('https://api.github.com/repos/'+repo+'/contents/'+fn,{method:'PUT',headers:{'Authorization':'token '+token,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});
+      if(!r.ok){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.message)em=ej.message;}catch(x){}throw new Error(fn+': '+em);}
+      pushed.push(fn); log('push: '+fn,'o');
+    }
+    var parts=repo.split('/');
+    var pageUrl='https://'+parts[0]+'.github.io/'+(parts[1]||'')+'/';
+    ghStat('ok','✅ push完了: '+pushed.join(', '));
+    var pu=document.getElementById('gh-url'); pu.style.display='block';
+    pu.innerHTML='🌐 <a href="'+pageUrl+'" target="_blank" style="color:var(--ac)">'+pageUrl+'</a>';
+    log('Pages: '+pageUrl,'o');
+  }catch(e){ghStat('err','❌ '+e.message);log('GitHub pushエラー: '+e.message,'e');}
+  btn.disabled=false; btn.textContent='🚀 Push → Pages';
+}
+
+// ═══ SETTINGS ═══
+function openCfg(){
+  var h='';
+  Object.values(PV).forEach(function(pv){
+    var v=S.keys[pv.id]||'';
+    h+='<div class="fg"><label style="color:'+pv.color+'">'+pv.em+' '+pv.name+' API Key</label>'
+      +'<input class="fc" type="password" data-pid="'+pv.id+'" value="'+escA(v)+'" placeholder="'+(pv.id==='local'?'不要（ローカルAI）':'sk-...')+'">'
+      +'</div>';
+  });
+  h+='<div class="fg"><label>Local AI エンドポイント</label><input class="fc" id="lep" value="'+escA(S.localEP)+'" placeholder="http://localhost:11434"><div class="fhint">Ollamaは11434、llama.cppは8080など</div></div>';
+  h+='<div class="fg"><label>System Prompt（全プロバイダー共通）</label><textarea class="fc" id="sysp" placeholder="全AIへの共通指示（空白可）">'+escH(S.sysPrompt)+'</textarea></div>';
+  document.getElementById('cfg-mbody').innerHTML=h;
+  document.getElementById('cfg-modal').style.display='flex';
+}
+function closeCfg(){document.getElementById('cfg-modal').style.display='none';}
+function saveCfg(){
+  document.querySelectorAll('#cfg-mbody [data-pid]').forEach(function(inp){S.keys[inp.dataset.pid]=inp.value.trim();});
+  var lep=document.getElementById('lep'); if(lep)S.localEP=lep.value.trim();
+  var sp=document.getElementById('sysp'); if(sp)S.sysPrompt=sp.value.trim();
+  save(); renderProviders(); updateTags(); fillGenSel(); closeCfg();
+  log('設定保存','o');
+}
+
+// ═══ MARKDOWN + SANITIZE ═══
+function mdRender(text,prefix){
+  if(typeof marked==='undefined')return escH(text).replace(/\n/g,'<br>');
+  var bi=0, blocks=[];
+  var proc=text.replace(/```(\w*)\n?([\s\S]*?)```/g,function(_,lang,code){
+    var id=(prefix||'m')+(_mi++)+'_'+(bi++), l=lang||'text', c=code.trimEnd();
+    blocks.push({id:id,lang:l,code:c}); _cs[id]={lang:l,code:c};
+    return '\x00CB'+id+'\x00';
+  });
+  var h=marked.parse(proc);
+  blocks.forEach(function(blk){
+    var hl=(typeof hljs!=='undefined'&&hljs.getLanguage(blk.lang))?hljs.highlight(blk.code,{language:blk.lang}).value:escH(blk.code);
+    var w='<div style="margin:8px 0;background:#1a1a1a;border-radius:8px;border:1px solid var(--bd);overflow:hidden">'
+      +'<div style="display:flex;align-items:center;background:#1e1e1e;padding:5px 10px;border-bottom:1px solid var(--bd)">'
+      +'<span style="font-size:10px;color:var(--tx3);font-family:monospace;flex:1">'+escH(blk.lang)+'</span>'
+      +'<button class="rcbtn" style="font-size:10px" data-cp="'+escA(blk.code)+'">📋</button></div>'
+      +'<pre style="margin:0"><code class="hljs language-'+blk.lang+'">'+hl+'</code></pre></div>';
+    h=h.replace('<p>\x00CB'+blk.id+'\x00</p>',w).replace('\x00CB'+blk.id+'\x00',w);
+  });
+  return h;
+}
+
+function sanitize(h){
+  try{
+    var doc=new DOMParser().parseFromString(h,'text/html');
+    var BL=/^(script|iframe|object|embed|form|base|meta|link|style)$/i;
+    doc.body.querySelectorAll('*').forEach(function(el){
+      if(BL.test(el.tagName)){el.remove();return;}
+      Array.from(el.attributes).forEach(function(a){
+        var n=a.name, v=a.value.trim().toLowerCase().replace(/[\s\0]/g,'');
+        if(/^on/i.test(n)){el.removeAttribute(n);return;}
+        if(/^(href|src|action|formaction)$/i.test(n)&&(/^javascript:/i.test(v)||/^data:text\/html/i.test(v)||/^vbscript:/i.test(v)))el.setAttribute(n,'#');
+      });
+    });
+    return doc.body.innerHTML;
+  }catch(e){return escH(h);}
+}
+
+// ═══ UTILS ═══
+function escH(s){var d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML;}
+function escA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function ar(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,140)+'px';}
+function wait(ms){return new Promise(function(r){setTimeout(r,ms);});}
+function cp(text,btn){navigator.clipboard.writeText(text).then(function(){if(btn){var ot=btn.textContent;btn.textContent='✅';setTimeout(function(){btn.textContent=ot;},2000);}});}
+
+// ═══ BOOT ═══
+init();
+</script>
+</body>
+</html>
