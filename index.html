@@ -609,13 +609,17 @@ function load(){
     var r=localStorage.getItem('aicc2');
     if(!r)return;
     var p=JSON.parse(r);
-    S.keys=p.keys||{}; S.sel=p.sel||{claude:true}; S.models=p.models||{};
+    S.keys=p.keys||{}; S.sel=p.sel||{openrouter_us:true}; S.models=p.models||{};
     S.sysPrompt=p.sysPrompt||'';
     S.convs=p.convs||[]; S.curId=p.curId||null;
     S.files=p.files||{}; S.curFile=p.curFile||'index.html';
     S.ghToken=p.ghToken||''; S.ghRepo=p.ghRepo||'';
     S.ghBranch=p.ghBranch||'main'; S.ghCommit=p.ghCommit||'Add generated app';
     S.broadcastMode = p.broadcastMode||false;
+    // OpenRouter移行: 旧プロバイダ(claude/openai/gemini/grok/deepseek)と旧静的localを掃除
+    var STALE=['claude','openai','gemini','grok','deepseek','local'];
+    STALE.forEach(function(k){ delete S.sel[k]; delete S.keys[k]; delete S.models[k]; });
+    if(Object.keys(S.sel).length===0) S.sel.openrouter_us = true;
   }catch(e){log('load err: '+e.message,'e');}
 }
 function save(){
@@ -713,7 +717,7 @@ function updateTags(){
   var sb=document.getElementById('sendbtn');
   sb.disabled=act.length===0||S.busy;
 }
-function getActive(){return Object.keys(S.sel).filter(function(k){return S.sel[k];});}
+function getActive(){return Object.keys(S.sel).filter(function(k){return S.sel[k] && PV[k];});}
 function setPdot(pid,s){var el=document.getElementById('pd-'+pid);if(el)el.className='pdot'+(s?' '+s:'');}
 function fillGenSel(){
   var h='';
