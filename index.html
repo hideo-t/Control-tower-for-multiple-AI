@@ -399,14 +399,101 @@ textarea.fc{resize:vertical;min-height:70px}
 <script>
 'use strict';
 // ═══ PROVIDERS ═══
+// OpenRouter経由で地域別にモデルを束ねる3エントリ。各エントリのモデルリストは起動時に OpenRouter カタログから動的取得する。
+// 単一のOpenRouter API キー(S.keys.openrouter)を3エントリで共有。
 var PV = {
-  claude:   {id:'claude',   name:'Claude',    em:'🟠', color:'#d97757', models:['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001'], def:'claude-sonnet-4-6'},
-  openai:   {id:'openai',   name:'ChatGPT',   em:'🟢', color:'#10a37f', models:['gpt-4o','gpt-4o-mini','o1-mini'],                                 def:'gpt-4o'},
-  gemini:   {id:'gemini',   name:'Gemini',    em:'🔵', color:'#4285f4', models:['gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash','gemini-2.0-flash-lite','gemini-1.5-flash'], def:'gemini-2.5-flash'},
-  grok:     {id:'grok',     name:'Grok',      em:'⚫', color:'#c8c8c8', models:['grok-3','grok-3-mini','grok-2-latest'],                            def:'grok-3-mini'},
-  deepseek: {id:'deepseek', name:'DeepSeek',  em:'🔷', color:'#4b6cf7', models:['deepseek-chat','deepseek-reasoner'],                               def:'deepseek-chat'}
+  openrouter_us: {id:'openrouter_us', name:'US (米国系)', em:'🇺🇸', color:'#3b82f6',
+                  models:['anthropic/claude-opus-4','openai/gpt-4o','google/gemini-2.5-pro'],
+                  def:'anthropic/claude-opus-4'},
+  openrouter_cn: {id:'openrouter_cn', name:'CN (中華系)', em:'🇨🇳', color:'#ef4444',
+                  models:['deepseek/deepseek-chat','qwen/qwen-2.5-72b-instruct'],
+                  def:'deepseek/deepseek-chat'},
+  openrouter_eu: {id:'openrouter_eu', name:'EU (欧州系)', em:'🇪🇺', color:'#22c55e',
+                  models:['mistralai/mistral-large','mistralai/codestral'],
+                  def:'mistralai/mistral-large'}
 };
 // Local AI は静的エントリを廃止。起動時に LOCAL_PORTS をスキャンして検出されたサーバのみを動的 local_<port> として登録する。
+
+// OpenRouterモデルauthor→地域マッピング
+var OR_REGIONS = {
+  us: ['anthropic','openai','google','meta-llama','x-ai','nvidia','cohere','perplexity','microsoft','amazon','inflection','databricks','ai21','liquid','allenai','nousresearch','mancer','openchat','lmsys','sao10k','undi95','neversleep','thedrummer','arcee-ai','rekaai','salesforce','snowflake','xai'],
+  cn: ['deepseek','qwen','01-ai','z-ai','zhipuai','baichuan-inc','moonshotai','minimax','internlm','bytedance','alibaba','tencent','thudm','baidu','tngtech','stepfun-ai'],
+  eu: ['mistralai','europa','silma','aleph-alpha']
+};
+
+async function fetchOpenRouterCatalog(){
+  try{
+    var r = await fetch('https://openrouter.ai/api/v1/models');
+    if(!r.ok) return null;
+    var d = await r.json();
+    return d.data || null;
+  }catch(e){ return null; }
+}
+
+async function applyOpenRouterDetection(){
+  log('OpenRouter カタログ取得中…','i');
+  var all = await fetchOpenRouterCatalog();
+  if(!all || !all.length){
+    log('OpenRouter: カタログ取得失敗 — 既定モデルを使用','w');
+    return;
+  }
+  // 新しい順(created desc)
+  all.sort(function(a,b){ return (b.created||0)-(a.created||0); });
+  // テキスト入力可能なモデルに絞り込み
+  all = all.filter(function(m){
+    if(!m.id || m.id.indexOf('/')<0) return false;
+    var arch = m.architecture || {};
+    var mods = (arch.input_modalities||[]).join(',') || arch.modality || '';
+    return !mods || mods.indexOf('text')>=0;
+  });
+  var summary = {us:0, cn:0, eu:0};
+  ['us','cn','eu'].forEach(function(region){
+    var prefixes = OR_REGIONS[region];
+    var filtered = all.filter(function(m){
+      var author = m.id.split('/')[0].toLowerCase();
+      return prefixes.indexOf(author)>=0;
+    });
+    var ids = filtered.map(function(m){return m.id;}).slice(0,25);
+    if(!ids.length) return;
+    var pid = 'openrouter_'+region;
+    PV[pid].models = ids;
+    PV[pid].def = ids[0];
+    if(!S.models[pid] || ids.indexOf(S.models[pid])<0) S.models[pid] = ids[0];
+    summary[region] = ids.length;
+  });
+  log('OpenRouter: '+all.length+'モデル取得 (US:'+summary.us+' CN:'+summary.cn+' EU:'+summary.eu+')','o');
+  renderProviders(); renderBadges(); updateTags(); fillGenSel();
+}
+
+// OpenRouterキーを各openrouter_* PIDに伝搬(既存のS.keys[pid]ベースのチェックロジックを生かすため)
+function syncORKeys(){
+  ['openrouter_us','openrouter_cn','openrouter_eu'].forEach(function(p){
+    if(S.keys.openrouter) S.keys[p] = S.keys.openrouter;
+    else delete S.keys[p];
+  });
+}
+
+async function callOR(msgs, model, key, sys){
+  if(!key) throw new Error('OpenRouter APIキー未設定 — ⚙設定で入力してください');
+  var m=[]; if(sys)m.push({role:'system',content:sys}); m=m.concat(msgs);
+  var r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'Authorization':'Bearer '+key,
+      'HTTP-Referer':'https://hideo-t.github.io/Control-tower-for-multiple-AI/',
+      'X-Title':'AI Command Center'
+    },
+    body: JSON.stringify({model:model, messages:m, max_tokens:8192})
+  });
+  if(!r.ok){
+    var em='HTTP '+r.status;
+    try{var ej=await r.json(); if(ej.error) em=typeof ej.error==='string'?ej.error:(ej.error.message||em);}catch(x){}
+    throw new Error(em);
+  }
+  var d=await r.json();
+  return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+}
 
 // ═══ LOCAL AI AUTODETECT ═══
 // 起動済のローカルLLMサーバを並列スキャンし、応答したエンドポイントを動的プロバイダ化する。
@@ -483,7 +570,7 @@ async function applyLocalDetection(autoSelect){
 
 // ═══ STATE ═══
 var S = {
-  keys:{}, sel:{claude:true}, models:{}, sysPrompt:'',
+  keys:{}, sel:{openrouter_us:true}, models:{}, sysPrompt:'',
   convs:[], curId:null, busy:false, viewMode:'cards', mode:'chat',
   files:{}, curFile:'index.html',
   ghToken:'', ghRepo:'', ghBranch:'main', ghCommit:'Add generated app',
@@ -507,10 +594,12 @@ function init(){
     var btn=document.getElementById('all-btn');
     if(btn){btn.textContent='⚡ 全AI一斉 ON';btn.style.background='#4caf80';btn.style.borderColor='#4caf80';}
   }
-  Object.keys(S.keys).forEach(function(k){if(S.keys[k]&&k.indexOf('local_')!==0)log(k+' key設定済','o');});
+  syncORKeys();
+  if(S.keys.openrouter) log('OpenRouter key設定済','o');
   document.getElementById('userinput').focus();
   switchMode('chat');
-  // 起動時に Local AI サーバを自動検出（非同期、UI起動はブロックしない）
+  // 起動時に OpenRouter カタログと Local AI サーバを並列に取得(UI起動はブロックしない)
+  applyOpenRouterDetection().catch(function(e){log('OR検出エラー: '+e.message,'e');});
   applyLocalDetection(true).catch(function(e){log('Local検出エラー: '+e.message,'e');});
 }
 
@@ -863,15 +952,12 @@ async function callProv(pid,userText,conv,ti){
     var model=S.models[pid]||PV[pid].def;
     var msgs=buildMsgs(conv,ti,pid);
     var text;
-    if(pid==='claude')     text=await callClaude(msgs,model,key,S.sysPrompt);
-    else if(pid==='gemini')text=await callGemini(msgs,model,key,S.sysPrompt);
-    else if(pid==='openai')text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.openai.com/v1/chat/completions');
-    else if(pid==='grok')  text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.x.ai/v1/chat/completions');
-    else if(pid==='deepseek')text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.deepseek.com/v1/chat/completions');
+    if(pid.indexOf('openrouter_')===0) text=await callOR(msgs,model,S.keys.openrouter||'',S.sysPrompt);
     else if(pid.indexOf('local_')===0){
       var lpv=PV[pid]; if(!lpv||!lpv.endpoint) throw new Error('検出済みLocal AIが見つかりません — 再検出してください');
       text=await callOAI(msgs,model,'none',S.sysPrompt,lpv.endpoint+'/v1/chat/completions');
     }
+    else throw new Error('未知のプロバイダ: '+pid);
     resp.text=text||''; resp.done=true; resp.ms=Date.now()-t0;
     log(pid+' '+resp.ms+'ms','d');
   }catch(e){
@@ -906,25 +992,6 @@ function buildMsgs(conv,ti,pid){
   }
   msgs.push({role:'user',content:conv.turns[ti].user});
   return msgs;
-}
-
-async function callClaude(msgs,model,key,sys){
-  var FB=['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001'];
-  var si=FB.indexOf(model); if(si<0)si=0;
-  var body={model:model,max_tokens:8192,messages:msgs,stream:false};
-  if(sys)body.system=sys;
-  var r;
-  for(var i=si;i<FB.length;i++){
-    body.model=FB[i];
-    r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify(body)});
-    if(r.ok)break;
-    if(r.status===401)throw new Error('APIキー無効');
-    if(r.status!==429&&r.status!==529){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.error)em=ej.error.message;}catch(x){}throw new Error(em);}
-    log('Claude 529→待機5s→フォールバック','w'); await wait(5000);
-  }
-  if(!r.ok){var em2='HTTP '+r.status;try{var ej2=await r.json();if(ej2.error)em2=ej2.error.message;}catch(x2){}throw new Error(em2);}
-  var d=await r.json();
-  return (d.content||[]).filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('\n');
 }
 
 async function callOAI(msgs,model,key,sys,ep){
@@ -983,26 +1050,23 @@ async function synthesize(conv, ti){
 
   var synthText = '';
   try{
-    // 統合実行優先順: クラウド系 → 検出された動的local_*
-    var synthOrder = ['claude','openai','gemini','deepseek','grok']
+    // 統合実行優先順: OpenRouter US → CN → EU → 検出された動的local_*
+    var synthOrder = ['openrouter_us','openrouter_cn','openrouter_eu']
       .concat(Object.keys(PV).filter(function(k){return k.indexOf('local_')===0;}));
     var done = false;
     for(var si2=0; si2<synthOrder.length && !done; si2++){
       var spid = synthOrder[si2];
-      var skey = S.keys[spid]||'';
+      var isOR = spid.indexOf('openrouter_')===0;
       var isLocal = spid.indexOf('local_')===0;
+      var skey = isOR ? (S.keys.openrouter||'') : (S.keys[spid]||'');
       if(!skey && !isLocal) continue;
       if(!PV[spid]) continue;
       var smodel = S.models[spid]||PV[spid].def;
       var smsgs = [{role:'user', content:synthPrompt}];
       var ssys = 'あなたは複数AIの回答を統合分析するアナリストです。共通点、差異、最善の統合回答を客観的に提示してください。';
       try{
-        if(spid==='claude')        synthText = await callClaude(smsgs, smodel, skey, ssys);
-        else if(spid==='gemini')   synthText = await callGemini(smsgs, smodel, skey, ssys);
-        else if(spid==='openai')   synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.openai.com/v1/chat/completions');
-        else if(spid==='deepseek') synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.deepseek.com/v1/chat/completions');
-        else if(spid==='grok')     synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.x.ai/v1/chat/completions');
-        else if(spid.indexOf('local_')===0) synthText = await callOAI(smsgs, smodel, 'none', ssys, PV[spid].endpoint+'/v1/chat/completions');
+        if(isOR) synthText = await callOR(smsgs, smodel, skey, ssys);
+        else if(isLocal) synthText = await callOAI(smsgs, smodel, 'none', ssys, PV[spid].endpoint+'/v1/chat/completions');
         if(synthText){ done = true; log('統合: '+spid+' で生成','o'); }
       }catch(ex){ log('統合 '+spid+' 失敗: '+ex.message,'w'); }
     }
@@ -1033,73 +1097,14 @@ async function synthesize(conv, ti){
   }
 }
 
-async function callGemini(msgs,model,key,sys){
-  // Strict user/model alternation - merge consecutive same roles
-  var rawContents = msgs.map(function(m){
-    return {role: m.role==='assistant'?'model':'user', parts:[{text: m.content||''}]};
-  });
-  var contents = [];
-  for(var i=0;i<rawContents.length;i++){
-    var cur = rawContents[i];
-    if(contents.length>0 && contents[contents.length-1].role===cur.role){
-      contents[contents.length-1].parts[0].text += ' ' + cur.parts[0].text;
-    } else {
-      contents.push({role:cur.role, parts:[{text:cur.parts[0].text}]});
-    }
-  }
-  if(contents.length>0 && contents[0].role!=='user'){
-    contents.unshift({role:'user', parts:[{text:'こんにちは'}]});
-  }
-  var body = {contents: contents};
-  // systemInstruction: no role field, just parts array
-  if(sys) body.system_instruction = {parts:[{text:sys}]};
-
-  // Fallback order: newest stable → older stable
-  var tryModels = [];
-  if(tryModels.indexOf(model)<0) tryModels.push(model);
-  ['gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash'].forEach(function(m){if(tryModels.indexOf(m)<0)tryModels.push(m);});
-
-  var lastErr = '';
-  for(var mi=0; mi<tryModels.length; mi++){
-    var m2 = tryModels[mi];
-    // Try v1 first, then v1beta
-    var apis = [
-      'https://generativelanguage.googleapis.com/v1/models/'+m2+':generateContent?key='+key,
-      'https://generativelanguage.googleapis.com/v1beta/models/'+m2+':generateContent?key='+key
-    ];
-    var succeeded = false;
-    for(var ai2=0; ai2<apis.length && !succeeded; ai2++){
-      try{
-        var r=await fetch(apis[ai2],{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-        if(!r.ok){
-          var em='HTTP '+r.status;
-          try{var ej=await r.json();if(ej.error&&ej.error.message)em=ej.error.message;}catch(x){}
-          if(em.indexOf('not found')>=0||em.indexOf('not supported')>=0||em.indexOf('no longer available')>=0||em.indexOf('deprecated')>=0){
-            lastErr=em; break; // try next model
-          }
-          throw new Error(em);
-        }
-        var d=await r.json();
-        var text=(d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts&&d.candidates[0].content.parts[0]&&d.candidates[0].content.parts[0].text)||'';
-        if(mi>0||ai2>0) log('Gemini: '+m2+' ('+( ai2===0?'v1':'v1beta')+') で成功','o');
-        return text;
-      }catch(fe){
-        if(fe.message&&(fe.message.indexOf('not found')>=0||fe.message.indexOf('not supported')>=0)){
-          lastErr=fe.message; break;
-        }
-        if(ai2===apis.length-1) lastErr=fe.message; // save for next model
-      }
-    }
-  }
-  throw new Error('Gemini: 全モデルが利用不可。'+lastErr);
-}
-
 async function generateApp(){
   var spec=document.getElementById('spec-inp').value.trim();
   if(!spec){alert('仕様書を入力してください。');return;}
   var sv=document.getElementById('gen-sel').value.split(':'), pid=sv[0], model=sv.slice(1).join(':');
-  var key=S.keys[pid];
-  if(!key&&pid.indexOf('local_')!==0){alert('このプロバイダーのAPIキーが設定されていません。');openCfg();return;}
+  var isOR=pid.indexOf('openrouter_')===0, isLocal=pid.indexOf('local_')===0;
+  var key=isOR?(S.keys.openrouter||''):'';
+  if(isOR && !key){alert('OpenRouter APIキーが設定されていません。');openCfg();return;}
+  if(!isOR && !isLocal){alert('未知のプロバイダ: '+pid);return;}
   var btn=document.getElementById('gen-btn'); btn.disabled=true; btn.textContent='⏳…';
   log('AppBuilder: '+pid+'/'+model,'d');
   var prompt='以下の仕様書に基づき、完全に動作するWebアプリをシングルHTMLファイル（HTML+CSS+JS全部入り）として生成してください。必ず```html ... ```のコードブロックで出力してください。\n\n## 仕様書\n'+spec;
@@ -1107,15 +1112,11 @@ async function generateApp(){
     var ms=[{role:'user',content:prompt}];
     var sys='あなたはエキスパートWebデベロッパーです。仕様書通りの完全動作するシングルHTMLファイルを生成します。';
     var text;
-    if(pid==='claude')text=await callClaude(ms,model,key,sys);
-    else if(pid==='gemini')text=await callGemini(ms,model,key,sys);
-    else if(pid.indexOf('local_')===0){
+    if(isOR) text=await callOR(ms,model,key,sys);
+    else if(isLocal){
       var lpv=PV[pid]; if(!lpv||!lpv.endpoint) throw new Error('Local AIエンドポイントが見つかりません');
       text=await callOAI(ms,model,'none',sys,lpv.endpoint+'/v1/chat/completions');
     }
-    else if(pid==='deepseek') text=await callOAI(ms,model,key,sys,'https://api.deepseek.com/v1/chat/completions');
-    else if(pid==='grok')     text=await callOAI(ms,model,key,sys,'https://api.x.ai/v1/chat/completions');
-    else text=await callOAI(ms,model,key,sys,'https://api.openai.com/v1/chat/completions');
     var match=text.match(/```(?:html)?\n?([\s\S]*?)```/);
     var code=match?match[1].trim():text.trim();
     S.files['index.html']=code; S.curFile='index.html';
@@ -1260,14 +1261,11 @@ async function ghPush(){
 // ═══ SETTINGS ═══
 function openCfg(){
   var h='';
-  Object.values(PV).forEach(function(pv){
-    // 動的に検出されたLocal AI(local_<port>)はAPIキー不要なので設定UIから除外
-    if(pv.id.indexOf('local_')===0) return;
-    var v=S.keys[pv.id]||'';
-    h+='<div class="fg"><label style="color:'+pv.color+'">'+pv.em+' '+pv.name+' API Key</label>'
-      +'<input class="fc" type="password" data-pid="'+pv.id+'" value="'+escA(v)+'" placeholder="sk-...">'
-      +'</div>';
-  });
+  // OpenRouter単一キー(US/CN/EU 3エントリで共有)
+  var v=S.keys.openrouter||'';
+  h+='<div class="fg"><label style="color:#d97757">🔑 OpenRouter API Key <span style="color:var(--tx3);font-weight:400">(US/CN/EU 共通)</span></label>'
+    +'<input class="fc" type="password" data-pid="openrouter" value="'+escA(v)+'" placeholder="sk-or-v1-...">'
+    +'<div class="fhint">openrouter.ai で発行。1キーで全モデルにアクセス可能</div></div>';
   h+='<div class="fg"><label>System Prompt（全プロバイダー共通）</label><textarea class="fc" id="sysp" placeholder="全AIへの共通指示（空白可）">'+escH(S.sysPrompt)+'</textarea></div>';
   document.getElementById('cfg-mbody').innerHTML=h;
   document.getElementById('cfg-modal').style.display='flex';
@@ -1276,8 +1274,11 @@ function closeCfg(){document.getElementById('cfg-modal').style.display='none';}
 function saveCfg(){
   document.querySelectorAll('#cfg-mbody [data-pid]').forEach(function(inp){S.keys[inp.dataset.pid]=inp.value.trim();});
   var sp=document.getElementById('sysp'); if(sp)S.sysPrompt=sp.value.trim();
+  syncORKeys();
   save(); renderProviders(); updateTags(); fillGenSel(); closeCfg();
   log('設定保存','o');
+  // 新キー設定直後にカタログ再取得
+  if(S.keys.openrouter) applyOpenRouterDetection().catch(function(e){log('OR再取得エラー: '+e.message,'e');});
 }
 
 // ═══ MARKDOWN + SANITIZE ═══
