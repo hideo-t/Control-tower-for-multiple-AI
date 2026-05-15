@@ -255,6 +255,7 @@ textarea.fc{resize:vertical;min-height:70px}
   </div>
   <div class="mode-tabs">
     <button class="mtab active" data-mode="chat">💬 チャット</button>
+    <button class="mtab" data-mode="asia">🐉 中華圏</button>
     <button class="mtab" data-mode="builder">🚀 AppBuilder</button>
   </div>
   <div class="sec-title">AIプロバイダー</div>
@@ -402,24 +403,36 @@ textarea.fc{resize:vertical;min-height:70px}
 // OpenRouter経由で地域別にモデルを束ねる3エントリ。各エントリのモデルリストは起動時に OpenRouter カタログから動的取得する。
 // 単一のOpenRouter API キー(S.keys.openrouter)を3エントリで共有。
 var PV = {
-  openrouter_us_1: {id:'openrouter_us_1', name:'US 1 (米国系)', em:'🇺🇸', color:'#3b82f6',
+  // チャットモード: 米欧中の主要モデル (各2スロット)
+  openrouter_us_1: {id:'openrouter_us_1', name:'US 1 (米国系)', em:'🇺🇸', color:'#3b82f6', mode:'chat',
                    models:['anthropic/claude-opus-4','openai/gpt-4o','google/gemini-2.5-pro'],
                    def:'anthropic/claude-opus-4'},
-  openrouter_us_2: {id:'openrouter_us_2', name:'US 2 (米国系)', em:'🇺🇸', color:'#60a5fa',
+  openrouter_us_2: {id:'openrouter_us_2', name:'US 2 (米国系)', em:'🇺🇸', color:'#60a5fa', mode:'chat',
                    models:['anthropic/claude-opus-4','openai/gpt-4o','google/gemini-2.5-pro'],
                    def:'openai/gpt-4o'},
-  openrouter_cn_1: {id:'openrouter_cn_1', name:'CN 1 (中華系)', em:'🇨🇳', color:'#ef4444',
+  openrouter_cn_1: {id:'openrouter_cn_1', name:'CN 1 (中華系)', em:'🇨🇳', color:'#ef4444', mode:'chat',
                    models:['deepseek/deepseek-chat','qwen/qwen-2.5-72b-instruct'],
                    def:'deepseek/deepseek-chat'},
-  openrouter_cn_2: {id:'openrouter_cn_2', name:'CN 2 (中華系)', em:'🇨🇳', color:'#f87171',
+  openrouter_cn_2: {id:'openrouter_cn_2', name:'CN 2 (中華系)', em:'🇨🇳', color:'#f87171', mode:'chat',
                    models:['deepseek/deepseek-chat','qwen/qwen-2.5-72b-instruct'],
                    def:'qwen/qwen-2.5-72b-instruct'},
-  openrouter_eu_1: {id:'openrouter_eu_1', name:'EU 1 (欧州系)', em:'🇪🇺', color:'#22c55e',
+  openrouter_eu_1: {id:'openrouter_eu_1', name:'EU 1 (欧州系)', em:'🇪🇺', color:'#22c55e', mode:'chat',
                    models:['mistralai/mistral-large','mistralai/codestral'],
                    def:'mistralai/mistral-large'},
-  openrouter_eu_2: {id:'openrouter_eu_2', name:'EU 2 (欧州系)', em:'🇪🇺', color:'#4ade80',
+  openrouter_eu_2: {id:'openrouter_eu_2', name:'EU 2 (欧州系)', em:'🇪🇺', color:'#4ade80', mode:'chat',
                    models:['mistralai/mistral-large','mistralai/codestral'],
-                   def:'mistralai/codestral'}
+                   def:'mistralai/codestral'},
+  // 中華圏モード: 廉価優先10スロット (中国・台湾・香港・韓国・他)
+  asia_1:  {id:'asia_1',  name:'Asia 1',  em:'🐉', color:'#dc2626', mode:'asia', models:['deepseek/deepseek-chat'], def:'deepseek/deepseek-chat'},
+  asia_2:  {id:'asia_2',  name:'Asia 2',  em:'🐉', color:'#ef4444', mode:'asia', models:['qwen/qwen-2.5-72b-instruct'], def:'qwen/qwen-2.5-72b-instruct'},
+  asia_3:  {id:'asia_3',  name:'Asia 3',  em:'🐉', color:'#f97316', mode:'asia', models:['z-ai/glm-4.5'], def:'z-ai/glm-4.5'},
+  asia_4:  {id:'asia_4',  name:'Asia 4',  em:'🐉', color:'#ea580c', mode:'asia', models:['moonshotai/kimi-k2'], def:'moonshotai/kimi-k2'},
+  asia_5:  {id:'asia_5',  name:'Asia 5',  em:'🐉', color:'#eab308', mode:'asia', models:['minimax/minimax-m1'], def:'minimax/minimax-m1'},
+  asia_6:  {id:'asia_6',  name:'Asia 6',  em:'🐉', color:'#ca8a04', mode:'asia', models:['01-ai/yi-large'], def:'01-ai/yi-large'},
+  asia_7:  {id:'asia_7',  name:'Asia 7',  em:'🐉', color:'#a855f7', mode:'asia', models:['baichuan-inc/baichuan2-13b-chat'], def:'baichuan-inc/baichuan2-13b-chat'},
+  asia_8:  {id:'asia_8',  name:'Asia 8',  em:'🐉', color:'#ec4899', mode:'asia', models:['internlm/internlm2-7b'], def:'internlm/internlm2-7b'},
+  asia_9:  {id:'asia_9',  name:'Asia 9',  em:'🐉', color:'#0ea5e9', mode:'asia', models:['tngtech/deepseek-r1t'], def:'tngtech/deepseek-r1t'},
+  asia_10: {id:'asia_10', name:'Asia 10', em:'🐉', color:'#10b981', mode:'asia', models:['stepfun-ai/step-3'], def:'stepfun-ai/step-3'}
 };
 // Local AI は静的エントリを廃止。起動時に LOCAL_PORTS をスキャンして検出されたサーバのみを動的 local_<port> として登録する。
 
@@ -429,6 +442,18 @@ var OR_REGIONS = {
   cn: ['deepseek','qwen','01-ai','z-ai','zhipuai','baichuan-inc','moonshotai','minimax','internlm','bytedance','alibaba','tencent','thudm','baidu','tngtech','stepfun-ai'],
   eu: ['mistralai','europa','silma','aleph-alpha']
 };
+
+// 中華圏(廉価モード) author一覧: 中国・韓国・台湾・香港・ASEAN
+var ASIA_AUTHORS = [
+  // 中国大陸
+  'deepseek','qwen','01-ai','z-ai','zhipuai','baichuan-inc','moonshotai','minimax','internlm','bytedance','alibaba','tencent','thudm','baidu','tngtech','stepfun-ai','aetherwing','smyt-ai',
+  // 韓国
+  'lgresearch','lgai','exaone','kakaobrain','upstage','naver',
+  // 台湾
+  'mediatek-research','yentinglin','twcc','taide',
+  // 香港・ASEAN
+  'sea','seallms','aisingapore'
+];
 
 async function fetchOpenRouterCatalog(){
   try{
@@ -455,18 +480,27 @@ async function applyOpenRouterDetection(){
     var mods = (arch.input_modalities||[]).join(',') || arch.modality || '';
     return !mods || mods.indexOf('text')>=0;
   });
-  var summary = {us:0, cn:0, eu:0};
-  ['us','cn','eu'].forEach(function(region){
-    var prefixes = OR_REGIONS[region];
+  var summary = {us:0, cn:0, eu:0, asia:0};
+  ['us','cn','eu','asia'].forEach(function(region){
+    var prefixes = region==='asia' ? ASIA_AUTHORS : OR_REGIONS[region];
     var filtered = all.filter(function(m){
       var author = m.id.split('/')[0].toLowerCase();
       return prefixes.indexOf(author)>=0;
     });
+    // asia は廉価優先(prompt+completion単価昇順)、その他は created desc(allが既にソート済)
+    if(region==='asia'){
+      filtered.sort(function(a,b){
+        var pa=(a.pricing&&(parseFloat(a.pricing.prompt||0)+parseFloat(a.pricing.completion||0)))||999;
+        var pb=(b.pricing&&(parseFloat(b.pricing.prompt||0)+parseFloat(b.pricing.completion||0)))||999;
+        return pa-pb;
+      });
+    }
     var ids = filtered.map(function(m){return m.id;}).slice(0,25);
     if(!ids.length) return;
-    // 各地域に2スロット — defaultはidsの先頭から異なる2つを割り当て
-    ['1','2'].forEach(function(slot, i){
-      var pid = 'openrouter_'+region+'_'+slot;
+    // スロット数: us/cn/eu=2、asia=10
+    var slots = region==='asia' ? ['1','2','3','4','5','6','7','8','9','10'] : ['1','2'];
+    slots.forEach(function(slot, i){
+      var pid = region==='asia' ? 'asia_'+slot : 'openrouter_'+region+'_'+slot;
       if(!PV[pid]) return;
       PV[pid].models = ids;
       PV[pid].def = ids[Math.min(i, ids.length-1)];
@@ -474,16 +508,23 @@ async function applyOpenRouterDetection(){
     });
     summary[region] = ids.length;
   });
-  log('OpenRouter: '+all.length+'モデル取得 (US:'+summary.us+' CN:'+summary.cn+' EU:'+summary.eu+')','o');
+  log('OpenRouter: '+all.length+'モデル取得 (US:'+summary.us+' CN:'+summary.cn+' EU:'+summary.eu+' Asia廉価:'+summary.asia+')','o');
   renderProviders(); renderBadges(); updateTags(); fillGenSel();
 }
 
 // OpenRouterキーを各openrouter_* PIDに伝搬(既存のS.keys[pid]ベースのチェックロジックを生かすため)
 function syncORKeys(){
-  ['openrouter_us_1','openrouter_us_2','openrouter_cn_1','openrouter_cn_2','openrouter_eu_1','openrouter_eu_2'].forEach(function(p){
+  var ALL=['openrouter_us_1','openrouter_us_2','openrouter_cn_1','openrouter_cn_2','openrouter_eu_1','openrouter_eu_2',
+           'asia_1','asia_2','asia_3','asia_4','asia_5','asia_6','asia_7','asia_8','asia_9','asia_10'];
+  ALL.forEach(function(p){
     if(S.keys.openrouter) S.keys[p] = S.keys.openrouter;
     else delete S.keys[p];
   });
+}
+
+// OpenRouter経由のproviderか判定(openrouter_us_*, openrouter_cn_*, openrouter_eu_*, asia_*)
+function isORProvider(pid){
+  return !!pid && (pid.indexOf('openrouter_')===0 || pid.indexOf('asia_')===0);
 }
 
 async function callOR(msgs, model, key, sys){
@@ -698,6 +739,9 @@ function bindAll(){
 function renderProviders(){
   var h='';
   Object.values(PV).forEach(function(pv){
+    // モードフィルタ: chat/asia モードでは該当mode + local(mode無)のみ。builderは全表示
+    var pmode = pv.mode;
+    if(pmode && S.mode !== 'builder' && pmode !== S.mode) return;
     var chk=S.sel[pv.id]?'checked':'';
     var m=S.models[pv.id]||pv.def;
     var opts=pv.models.map(function(x){return '<option value="'+x+'"'+(x===m?' selected':'')+'>'+x+'</option>';}).join('');
@@ -730,7 +774,15 @@ function updateTags(){
   var sb=document.getElementById('sendbtn');
   sb.disabled=act.length===0||S.busy;
 }
-function getActive(){return Object.keys(S.sel).filter(function(k){return S.sel[k] && PV[k];});}
+function getActive(){
+  // 現在のモードに合致するプロバイダのみ返す(local_*はモード非依存で常に有効)
+  return Object.keys(S.sel).filter(function(k){
+    if(!S.sel[k] || !PV[k]) return false;
+    var pmode = PV[k].mode;
+    if(!pmode) return true; // local AI: 全モードで利用可能
+    return pmode === S.mode;
+  });
+}
 function setPdot(pid,s){var el=document.getElementById('pd-'+pid);if(el)el.className='pdot'+(s?' '+s:'');}
 function fillGenSel(){
   var h='';
@@ -745,9 +797,16 @@ function fillGenSel(){
 function switchMode(m){
   S.mode=m;
   document.querySelectorAll('.mtab').forEach(function(t){t.classList.toggle('active',t.dataset.mode===m);});
-  document.getElementById('chat-view').style.display=m==='chat'?'flex':'none';
+  // chat/asia は同じチャットUIを使用、builderのみ独自view
+  var isChatLike = (m==='chat' || m==='asia');
+  document.getElementById('chat-view').style.display=isChatLike?'flex':'none';
   document.getElementById('builder-view').style.display=m==='builder'?'flex':'none';
-  document.getElementById('inp-area').style.display=m==='chat'?'block':'none';
+  document.getElementById('inp-area').style.display=isChatLike?'block':'none';
+  // タイトル更新
+  var ht=document.getElementById('htitle');
+  if(ht) ht.textContent = m==='asia' ? 'AI 司令塔 — 中華圏 (廉価モデル)' : (m==='builder' ? 'AppBuilder' : 'AI 司令塔');
+  // モードに合わせてプロバイダ一覧を再描画
+  renderProviders(); updateTags();
   if(m==='builder')renderFiles();
 }
 function setView(v){
@@ -908,7 +967,12 @@ async function send(){
   if(!text)return;
   // In broadcast mode, auto-enable all keyed providers
   if(S.broadcastMode){
-    Object.keys(PV).forEach(function(pid){ S.sel[pid] = !!(S.keys[pid]||pid.indexOf('local_')===0); });
+    var _tm=S.mode==='builder'?'chat':S.mode;
+    Object.keys(PV).forEach(function(pid){
+      var pm=PV[pid].mode;
+      if(pm && pm!==_tm){ S.sel[pid]=false; return; }
+      S.sel[pid] = !!(S.keys[pid]||pid.indexOf('local_')===0);
+    });
     updateTags(); renderProviders();
   }
   // Only call providers that are selected AND have keys (or are local)
@@ -941,10 +1005,15 @@ async function broadcastAll(){
   S.broadcastMode = !S.broadcastMode;
   var btn = document.getElementById('all-btn');
   if(S.broadcastMode){
-    // Enable all keyed providers permanently until toggled off
-    Object.keys(PV).forEach(function(pid){ S.sel[pid] = !!(S.keys[pid]); });
+    // 現モードに合致するキー設定済プロバイダのみON、それ以外はOFF(local_*はmode=未設定で常に対象)
+    var targetMode = S.mode==='builder' ? 'chat' : S.mode;
+    Object.keys(PV).forEach(function(pid){
+      var pmode = PV[pid].mode;
+      if(pmode && pmode !== targetMode){ S.sel[pid] = false; return; }
+      S.sel[pid] = !!(S.keys[pid]);
+    });
     btn.textContent = '⚡ 全AI一斉 ON'; btn.style.background = '#4caf80'; btn.style.borderColor = '#4caf80';
-    log('全AI一斉モード ON','o');
+    log('全AI一斉モード ON ('+targetMode+')','o');
   } else {
     btn.textContent = '⚡ 全AI一斉'; btn.style.background = ''; btn.style.borderColor = '';
     log('全AI一斉モード OFF','d');
@@ -969,7 +1038,7 @@ async function callProv(pid,userText,conv,ti){
     var model=S.models[pid]||PV[pid].def;
     var msgs=buildMsgs(conv,ti,pid);
     var text;
-    if(pid.indexOf('openrouter_')===0) text=await callOR(msgs,model,S.keys.openrouter||'',S.sysPrompt);
+    if(isORProvider(pid)) text=await callOR(msgs,model,S.keys.openrouter||'',S.sysPrompt);
     else if(pid.indexOf('local_')===0){
       var lpv=PV[pid]; if(!lpv||!lpv.endpoint) throw new Error('検出済みLocal AIが見つかりません — 再検出してください');
       text=await callOAI(msgs,model,'none',S.sysPrompt,lpv.endpoint+'/v1/chat/completions');
@@ -1067,13 +1136,14 @@ async function synthesize(conv, ti){
 
   var synthText = '';
   try{
-    // 統合実行優先順: OpenRouter US 1/2 → CN 1/2 → EU 1/2 → 検出された動的local_*
-    var synthOrder = ['openrouter_us_1','openrouter_us_2','openrouter_cn_1','openrouter_cn_2','openrouter_eu_1','openrouter_eu_2']
+    // 統合実行優先順: OpenRouter US 1/2 → CN 1/2 → EU 1/2 → asia 1-10 → 検出された動的local_*
+    var synthOrder = ['openrouter_us_1','openrouter_us_2','openrouter_cn_1','openrouter_cn_2','openrouter_eu_1','openrouter_eu_2',
+                      'asia_1','asia_2','asia_3','asia_4','asia_5','asia_6','asia_7','asia_8','asia_9','asia_10']
       .concat(Object.keys(PV).filter(function(k){return k.indexOf('local_')===0;}));
     var done = false;
     for(var si2=0; si2<synthOrder.length && !done; si2++){
       var spid = synthOrder[si2];
-      var isOR = spid.indexOf('openrouter_')===0;
+      var isOR = isORProvider(spid);
       var isLocal = spid.indexOf('local_')===0;
       var skey = isOR ? (S.keys.openrouter||'') : (S.keys[spid]||'');
       if(!skey && !isLocal) continue;
@@ -1118,7 +1188,7 @@ async function generateApp(){
   var spec=document.getElementById('spec-inp').value.trim();
   if(!spec){alert('仕様書を入力してください。');return;}
   var sv=document.getElementById('gen-sel').value.split(':'), pid=sv[0], model=sv.slice(1).join(':');
-  var isOR=pid.indexOf('openrouter_')===0, isLocal=pid.indexOf('local_')===0;
+  var isOR=isORProvider(pid), isLocal=pid.indexOf('local_')===0;
   var key=isOR?(S.keys.openrouter||''):'';
   if(isOR && !key){alert('OpenRouter APIキーが設定されていません。');openCfg();return;}
   if(!isOR && !isLocal){alert('未知のプロバイダ: '+pid);return;}
