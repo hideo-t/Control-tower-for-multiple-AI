@@ -404,9 +404,9 @@ var PV = {
   openai:   {id:'openai',   name:'ChatGPT',   em:'🟢', color:'#10a37f', models:['gpt-4o','gpt-4o-mini','o1-mini'],                                 def:'gpt-4o'},
   gemini:   {id:'gemini',   name:'Gemini',    em:'🔵', color:'#4285f4', models:['gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash','gemini-2.0-flash-lite','gemini-1.5-flash'], def:'gemini-2.5-flash'},
   grok:     {id:'grok',     name:'Grok',      em:'⚫', color:'#c8c8c8', models:['grok-3','grok-3-mini','grok-2-latest'],                            def:'grok-3-mini'},
-  deepseek: {id:'deepseek', name:'DeepSeek',  em:'🔷', color:'#4b6cf7', models:['deepseek-chat','deepseek-reasoner'],                               def:'deepseek-chat'},
-  local:    {id:'local',    name:'Local AI',  em:'🖥',  color:'#9b59b6', models:['qwen3-coder:30b','llama3.2','gemma3','mistral','custom'],                    def:'qwen3'}
+  deepseek: {id:'deepseek', name:'DeepSeek',  em:'🔷', color:'#4b6cf7', models:['deepseek-chat','deepseek-reasoner'],                               def:'deepseek-chat'}
 };
+// Local AI は静的エントリを廃止。起動時に LOCAL_PORTS をスキャンして検出されたサーバのみを動的 local_<port> として登録する。
 
 // ═══ LOCAL AI AUTODETECT ═══
 // 起動済のローカルLLMサーバを並列スキャンし、応答したエンドポイントを動的プロバイダ化する。
@@ -483,7 +483,7 @@ async function applyLocalDetection(autoSelect){
 
 // ═══ STATE ═══
 var S = {
-  keys:{}, sel:{claude:true}, models:{}, sysPrompt:'', localEP:'http://localhost:11434',
+  keys:{}, sel:{claude:true}, models:{}, sysPrompt:'',
   convs:[], curId:null, busy:false, viewMode:'cards', mode:'chat',
   files:{}, curFile:'index.html',
   ghToken:'', ghRepo:'', ghBranch:'main', ghCommit:'Add generated app',
@@ -507,7 +507,7 @@ function init(){
     var btn=document.getElementById('all-btn');
     if(btn){btn.textContent='⚡ 全AI一斉 ON';btn.style.background='#4caf80';btn.style.borderColor='#4caf80';}
   }
-  Object.keys(S.keys).forEach(function(k){if(S.keys[k]&&k.indexOf('local_')!==0&&k!=='local')log(k+' key設定済','o');});
+  Object.keys(S.keys).forEach(function(k){if(S.keys[k]&&k.indexOf('local_')!==0)log(k+' key設定済','o');});
   document.getElementById('userinput').focus();
   switchMode('chat');
   // 起動時に Local AI サーバを自動検出（非同期、UI起動はブロックしない）
@@ -521,7 +521,7 @@ function load(){
     if(!r)return;
     var p=JSON.parse(r);
     S.keys=p.keys||{}; S.sel=p.sel||{claude:true}; S.models=p.models||{};
-    S.sysPrompt=p.sysPrompt||''; S.localEP=p.localEP||'http://localhost:11434';
+    S.sysPrompt=p.sysPrompt||'';
     S.convs=p.convs||[]; S.curId=p.curId||null;
     S.files=p.files||{}; S.curFile=p.curFile||'index.html';
     S.ghToken=p.ghToken||''; S.ghRepo=p.ghRepo||'';
@@ -530,7 +530,7 @@ function load(){
   }catch(e){log('load err: '+e.message,'e');}
 }
 function save(){
-  try{localStorage.setItem('aicc2',JSON.stringify({keys:S.keys,sel:S.sel,models:S.models,sysPrompt:S.sysPrompt,localEP:S.localEP,convs:S.convs,curId:S.curId,files:S.files,curFile:S.curFile,ghToken:S.ghToken,ghRepo:S.ghRepo,ghBranch:S.ghBranch,ghCommit:S.ghCommit,broadcastMode:S.broadcastMode}));}
+  try{localStorage.setItem('aicc2',JSON.stringify({keys:S.keys,sel:S.sel,models:S.models,sysPrompt:S.sysPrompt,convs:S.convs,curId:S.curId,files:S.files,curFile:S.curFile,ghToken:S.ghToken,ghRepo:S.ghRepo,ghBranch:S.ghBranch,ghCommit:S.ghCommit,broadcastMode:S.broadcastMode}));}
   catch(e){log('save err: '+e.message,'e');}
 }
 
@@ -802,11 +802,11 @@ async function send(){
   if(!text)return;
   // In broadcast mode, auto-enable all keyed providers
   if(S.broadcastMode){
-    Object.keys(PV).forEach(function(pid){ S.sel[pid] = !!(S.keys[pid]||pid==='local'); });
+    Object.keys(PV).forEach(function(pid){ S.sel[pid] = !!(S.keys[pid]||pid.indexOf('local_')===0); });
     updateTags(); renderProviders();
   }
   // Only call providers that are selected AND have keys (or are local)
-  var act=getActive().filter(function(pid){ return !!(S.keys[pid]||pid==='local'); });
+  var act=getActive().filter(function(pid){ return !!(S.keys[pid]||pid.indexOf('local_')===0); });
   if(!act.length){ openCfg(); return; }
   if(!S.curId)newConv();
   var conv=getCur(); if(!conv)return;
@@ -856,7 +856,7 @@ async function callProv(pid,userText,conv,ti){
   var t0=Date.now(), resp=conv.turns[ti].responses[pid];
   try{
     var key=S.keys[pid]||'';
-    if(!key&&pid!=='local'){
+    if(!key&&pid.indexOf('local_')!==0){
       resp.text='⚠ APIキー未設定 — ⚙設定で入力してください';
       resp.done=true;resp.error=true;updateCard(pid,ti,resp);return;
     }
@@ -868,7 +868,6 @@ async function callProv(pid,userText,conv,ti){
     else if(pid==='openai')text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.openai.com/v1/chat/completions');
     else if(pid==='grok')  text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.x.ai/v1/chat/completions');
     else if(pid==='deepseek')text=await callOAI(msgs,model,key,S.sysPrompt,'https://api.deepseek.com/v1/chat/completions');
-    else if(pid==='local') text=await callOAI(msgs,model,'none',S.sysPrompt,(S.localEP||'http://localhost:11434')+'/v1/chat/completions');
     else if(pid.indexOf('local_')===0){
       var lpv=PV[pid]; if(!lpv||!lpv.endpoint) throw new Error('検出済みLocal AIが見つかりません — 再検出してください');
       text=await callOAI(msgs,model,'none',S.sysPrompt,lpv.endpoint+'/v1/chat/completions');
@@ -984,14 +983,14 @@ async function synthesize(conv, ti){
 
   var synthText = '';
   try{
-    // 統合実行優先順: クラウド系 → 静的local → 検出された動的local_*
-    var synthOrder = ['claude','openai','gemini','deepseek','grok','local']
+    // 統合実行優先順: クラウド系 → 検出された動的local_*
+    var synthOrder = ['claude','openai','gemini','deepseek','grok']
       .concat(Object.keys(PV).filter(function(k){return k.indexOf('local_')===0;}));
     var done = false;
     for(var si2=0; si2<synthOrder.length && !done; si2++){
       var spid = synthOrder[si2];
       var skey = S.keys[spid]||'';
-      var isLocal = spid==='local' || spid.indexOf('local_')===0;
+      var isLocal = spid.indexOf('local_')===0;
       if(!skey && !isLocal) continue;
       if(!PV[spid]) continue;
       var smodel = S.models[spid]||PV[spid].def;
@@ -1003,7 +1002,6 @@ async function synthesize(conv, ti){
         else if(spid==='openai')   synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.openai.com/v1/chat/completions');
         else if(spid==='deepseek') synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.deepseek.com/v1/chat/completions');
         else if(spid==='grok')     synthText = await callOAI(smsgs, smodel, skey, ssys, 'https://api.x.ai/v1/chat/completions');
-        else if(spid==='local')    synthText = await callOAI(smsgs, smodel, 'none', ssys, (S.localEP||'http://localhost:11434')+'/v1/chat/completions');
         else if(spid.indexOf('local_')===0) synthText = await callOAI(smsgs, smodel, 'none', ssys, PV[spid].endpoint+'/v1/chat/completions');
         if(synthText){ done = true; log('統合: '+spid+' で生成','o'); }
       }catch(ex){ log('統合 '+spid+' 失敗: '+ex.message,'w'); }
@@ -1101,7 +1099,7 @@ async function generateApp(){
   if(!spec){alert('仕様書を入力してください。');return;}
   var sv=document.getElementById('gen-sel').value.split(':'), pid=sv[0], model=sv.slice(1).join(':');
   var key=S.keys[pid];
-  if(!key&&pid!=='local'){alert('このプロバイダーのAPIキーが設定されていません。');openCfg();return;}
+  if(!key&&pid.indexOf('local_')!==0){alert('このプロバイダーのAPIキーが設定されていません。');openCfg();return;}
   var btn=document.getElementById('gen-btn'); btn.disabled=true; btn.textContent='⏳…';
   log('AppBuilder: '+pid+'/'+model,'d');
   var prompt='以下の仕様書に基づき、完全に動作するWebアプリをシングルHTMLファイル（HTML+CSS+JS全部入り）として生成してください。必ず```html ... ```のコードブロックで出力してください。\n\n## 仕様書\n'+spec;
@@ -1111,6 +1109,12 @@ async function generateApp(){
     var text;
     if(pid==='claude')text=await callClaude(ms,model,key,sys);
     else if(pid==='gemini')text=await callGemini(ms,model,key,sys);
+    else if(pid.indexOf('local_')===0){
+      var lpv=PV[pid]; if(!lpv||!lpv.endpoint) throw new Error('Local AIエンドポイントが見つかりません');
+      text=await callOAI(ms,model,'none',sys,lpv.endpoint+'/v1/chat/completions');
+    }
+    else if(pid==='deepseek') text=await callOAI(ms,model,key,sys,'https://api.deepseek.com/v1/chat/completions');
+    else if(pid==='grok')     text=await callOAI(ms,model,key,sys,'https://api.x.ai/v1/chat/completions');
     else text=await callOAI(ms,model,key,sys,'https://api.openai.com/v1/chat/completions');
     var match=text.match(/```(?:html)?\n?([\s\S]*?)```/);
     var code=match?match[1].trim():text.trim();
@@ -1257,12 +1261,13 @@ async function ghPush(){
 function openCfg(){
   var h='';
   Object.values(PV).forEach(function(pv){
+    // 動的に検出されたLocal AI(local_<port>)はAPIキー不要なので設定UIから除外
+    if(pv.id.indexOf('local_')===0) return;
     var v=S.keys[pv.id]||'';
     h+='<div class="fg"><label style="color:'+pv.color+'">'+pv.em+' '+pv.name+' API Key</label>'
-      +'<input class="fc" type="password" data-pid="'+pv.id+'" value="'+escA(v)+'" placeholder="'+(pv.id==='local'?'不要（ローカルAI）':'sk-...')+'">'
+      +'<input class="fc" type="password" data-pid="'+pv.id+'" value="'+escA(v)+'" placeholder="sk-...">'
       +'</div>';
   });
-  h+='<div class="fg"><label>Local AI エンドポイント</label><input class="fc" id="lep" value="'+escA(S.localEP)+'" placeholder="http://localhost:11434"><div class="fhint">Ollamaは11434、llama.cppは8080など</div></div>';
   h+='<div class="fg"><label>System Prompt（全プロバイダー共通）</label><textarea class="fc" id="sysp" placeholder="全AIへの共通指示（空白可）">'+escH(S.sysPrompt)+'</textarea></div>';
   document.getElementById('cfg-mbody').innerHTML=h;
   document.getElementById('cfg-modal').style.display='flex';
@@ -1270,7 +1275,6 @@ function openCfg(){
 function closeCfg(){document.getElementById('cfg-modal').style.display='none';}
 function saveCfg(){
   document.querySelectorAll('#cfg-mbody [data-pid]').forEach(function(inp){S.keys[inp.dataset.pid]=inp.value.trim();});
-  var lep=document.getElementById('lep'); if(lep)S.localEP=lep.value.trim();
   var sp=document.getElementById('sysp'); if(sp)S.sysPrompt=sp.value.trim();
   save(); renderProviders(); updateTags(); fillGenSel(); closeCfg();
   log('設定保存','o');
