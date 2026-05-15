@@ -508,13 +508,32 @@ async function applyOpenRouterDetection(){
     }
     var ids = filtered.map(function(m){return m.id;}).slice(0,25);
     if(!ids.length) return;
+    // asiaモードはauthor多様化: 各authorの廉価モデルを1個ずつラウンドロビンで拾う(回答ばらつき確保)
+    var diverseIds = ids;
+    if(region==='asia'){
+      var byAuthor={};
+      filtered.forEach(function(m){
+        var a=m.id.split('/')[0].toLowerCase();
+        (byAuthor[a]=byAuthor[a]||[]).push(m.id);
+      });
+      var authors=Object.keys(byAuthor);
+      diverseIds=[];
+      for(var pass=0; pass<5 && diverseIds.length<10; pass++){
+        authors.forEach(function(a){
+          if(diverseIds.length>=10) return;
+          if(byAuthor[a][pass]) diverseIds.push(byAuthor[a][pass]);
+        });
+      }
+      log('Asia多様化: '+authors.length+'author × '+diverseIds.length+'スロット','i');
+    }
     // スロット数: us/cn/eu=2、asia=10
     var slots = region==='asia' ? ['1','2','3','4','5','6','7','8','9','10'] : ['1','2'];
     slots.forEach(function(slot, i){
       var pid = region==='asia' ? 'asia_'+slot : 'openrouter_'+region+'_'+slot;
       if(!PV[pid]) return;
-      PV[pid].models = ids;
-      PV[pid].def = ids[Math.min(i, ids.length-1)];
+      PV[pid].models = ids; // dropdownには全候補(廉価順 最大25)
+      // defaultは多様化済リストから(asiaの場合)。それ以外は連番
+      PV[pid].def = (region==='asia' && diverseIds[i]) ? diverseIds[i] : ids[Math.min(i, ids.length-1)];
       if(!S.models[pid] || ids.indexOf(S.models[pid])<0) S.models[pid] = PV[pid].def;
     });
     summary[region] = ids.length;
@@ -549,33 +568,44 @@ function fmtCost(c){
   return '$'+c.toFixed(2);
 }
 
+var CALL_TIMEOUT_MS = 60000; // 60秒で応答なしならabort
+
 async function callOR(msgs, model, key, sys, ctx){
   if(!key) throw new Error('OpenRouter APIキー未設定 — ⚙設定で入力してください');
   var m=[]; if(sys)m.push({role:'system',content:sys}); m=m.concat(msgs);
-  var r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'Authorization':'Bearer '+key,
-      'HTTP-Referer':'https://hideo-t.github.io/Control-tower-for-multiple-AI/',
-      'X-Title':'AI Command Center'
-    },
-    body: JSON.stringify({model:model, messages:m, max_tokens:8192, usage:{include:true}})
-  });
-  if(!r.ok){
-    var em='HTTP '+r.status;
-    try{var ej=await r.json(); if(ej.error) em=typeof ej.error==='string'?ej.error:(ej.error.message||em);}catch(x){}
-    throw new Error(em);
+  var ctrl=new AbortController();
+  var to=setTimeout(function(){ctrl.abort();}, CALL_TIMEOUT_MS);
+  try{
+    var r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method:'POST',
+      signal:ctrl.signal,
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer '+key,
+        'HTTP-Referer':'https://hideo-t.github.io/Control-tower-for-multiple-AI/',
+        'X-Title':'AI Command Center'
+      },
+      body: JSON.stringify({model:model, messages:m, max_tokens:8192, usage:{include:true}})
+    });
+    clearTimeout(to);
+    if(!r.ok){
+      var em='HTTP '+r.status;
+      try{var ej=await r.json(); if(ej.error) em=typeof ej.error==='string'?ej.error:(ej.error.message||em);}catch(x){}
+      throw new Error(em);
+    }
+    var d=await r.json();
+    if(ctx && d.usage){
+      var pr = OR_MODEL_PRICING[model] || {prompt:0, completion:0};
+      var cost = (d.usage.prompt_tokens||0)*pr.prompt + (d.usage.completion_tokens||0)*pr.completion;
+      ctx.cost = cost;
+      ctx.usage = {prompt_tokens:d.usage.prompt_tokens||0, completion_tokens:d.usage.completion_tokens||0};
+    }
+    return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+  }catch(e){
+    clearTimeout(to);
+    if(e.name==='AbortError') throw new Error('タイムアウト (60秒) — モデルが応答しませんでした');
+    throw e;
   }
-  var d=await r.json();
-  // 推定料金算出: usage.prompt_tokens × pricing.prompt + usage.completion_tokens × pricing.completion
-  if(ctx && d.usage){
-    var pr = OR_MODEL_PRICING[model] || {prompt:0, completion:0};
-    var cost = (d.usage.prompt_tokens||0)*pr.prompt + (d.usage.completion_tokens||0)*pr.completion;
-    ctx.cost = cost;
-    ctx.usage = {prompt_tokens:d.usage.prompt_tokens||0, completion_tokens:d.usage.completion_tokens||0};
-  }
-  return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
 }
 
 // ═══ LOCAL AI AUTODETECT ═══
@@ -1113,10 +1143,19 @@ function buildMsgs(conv,ti,pid){
 
 async function callOAI(msgs,model,key,sys,ep){
   var m=[]; if(sys)m.push({role:'system',content:sys}); m=m.concat(msgs);
-  var r=await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:model,messages:m,max_tokens:8192})});
-  if(!r.ok){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.error)em=typeof ej.error==='string'?ej.error:ej.error.message;}catch(x){}throw new Error(em);}
-  var d=await r.json();
-  return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+  var ctrl=new AbortController();
+  var to=setTimeout(function(){ctrl.abort();}, CALL_TIMEOUT_MS);
+  try{
+    var r=await fetch(ep,{method:'POST',signal:ctrl.signal,headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:model,messages:m,max_tokens:8192})});
+    clearTimeout(to);
+    if(!r.ok){var em='HTTP '+r.status;try{var ej=await r.json();if(ej.error)em=typeof ej.error==='string'?ej.error:ej.error.message;}catch(x){}throw new Error(em);}
+    var d=await r.json();
+    return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+  }catch(e){
+    clearTimeout(to);
+    if(e.name==='AbortError') throw new Error('タイムアウト (60秒)');
+    throw e;
+  }
 }
 
 // ═══ SYNTHESIS ═══
