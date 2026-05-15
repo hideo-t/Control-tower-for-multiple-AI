@@ -282,6 +282,7 @@ textarea.fc{resize:vertical;min-height:70px}
       <button class="hbtn on" id="vcard-btn">⊟ カード</button>
       <button class="hbtn" id="vtab-btn">◫ タブ</button>
       <button class="hbtn" id="redetect-btn" title="Local AIサーバを再検出">🔍 Local検出</button>
+      <span id="conv-cost" title="この会話の推定料金合計" style="font-size:11px;color:var(--tx3);padding:0 10px;font-family:'JetBrains Mono',monospace;white-space:nowrap"></span>
     </div>
   </header>
 
@@ -471,6 +472,16 @@ async function applyOpenRouterDetection(){
     log('OpenRouter: カタログ取得失敗 — 既定モデルを使用','w');
     return;
   }
+  // フィルタ前にpricing辞書を構築(全モデル分の単価を保持)
+  OR_MODEL_PRICING = {};
+  all.forEach(function(m){
+    if(m.id && m.pricing){
+      OR_MODEL_PRICING[m.id] = {
+        prompt: parseFloat(m.pricing.prompt||0),
+        completion: parseFloat(m.pricing.completion||0)
+      };
+    }
+  });
   // 新しい順(created desc)
   all.sort(function(a,b){ return (b.created||0)-(a.created||0); });
   // テキスト入力可能なモデルに絞り込み
@@ -527,7 +538,18 @@ function isORProvider(pid){
   return !!pid && (pid.indexOf('openrouter_')===0 || pid.indexOf('asia_')===0);
 }
 
-async function callOR(msgs, model, key, sys){
+// モデルID→単価マップ(USD/token)。applyOpenRouterDetection時に充填
+var OR_MODEL_PRICING = {};
+
+// $ 表示: 1¢未満=4桁、1¢〜$1=3桁、それ以上=2桁
+function fmtCost(c){
+  if(!c || c<=0) return '';
+  if(c < 0.01) return '$'+c.toFixed(4);
+  if(c < 1)    return '$'+c.toFixed(3);
+  return '$'+c.toFixed(2);
+}
+
+async function callOR(msgs, model, key, sys, ctx){
   if(!key) throw new Error('OpenRouter APIキー未設定 — ⚙設定で入力してください');
   var m=[]; if(sys)m.push({role:'system',content:sys}); m=m.concat(msgs);
   var r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -538,7 +560,7 @@ async function callOR(msgs, model, key, sys){
       'HTTP-Referer':'https://hideo-t.github.io/Control-tower-for-multiple-AI/',
       'X-Title':'AI Command Center'
     },
-    body: JSON.stringify({model:model, messages:m, max_tokens:8192})
+    body: JSON.stringify({model:model, messages:m, max_tokens:8192, usage:{include:true}})
   });
   if(!r.ok){
     var em='HTTP '+r.status;
@@ -546,6 +568,13 @@ async function callOR(msgs, model, key, sys){
     throw new Error(em);
   }
   var d=await r.json();
+  // 推定料金算出: usage.prompt_tokens × pricing.prompt + usage.completion_tokens × pricing.completion
+  if(ctx && d.usage){
+    var pr = OR_MODEL_PRICING[model] || {prompt:0, completion:0};
+    var cost = (d.usage.prompt_tokens||0)*pr.prompt + (d.usage.completion_tokens||0)*pr.completion;
+    ctx.cost = cost;
+    ctx.usage = {prompt_tokens:d.usage.prompt_tokens||0, completion_tokens:d.usage.completion_tokens||0};
+  }
   return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
 }
 
@@ -873,6 +902,7 @@ function renderConv(){
     }
   });
   var sc=document.getElementById('chat-scrl'); sc.scrollTop=sc.scrollHeight;
+  updateConvCost();
 }
 
 function renderTurn(container,turn,ti,conv){
@@ -905,7 +935,7 @@ function fillTab(el,resp,pid){
     el.innerHTML='<div class="tabcontent"><div class="md">'+sanitize(mdRender(resp.text||'',pid))+'</div>'
       +'<div style="margin-top:7px;display:flex;gap:5px">'
       +'<button class="rcbtn" data-cp="'+escA(resp.text||'')+'">📋 コピー</button>'
-      +(resp.ms?'<span style="font-size:10px;color:var(--tx3);align-self:center">⏱ '+resp.ms+'ms</span>':'')
+      +(resp.ms?'<span style="font-size:10px;color:var(--tx3);align-self:center">⏱ '+resp.ms+'ms'+(resp.cost?' · '+fmtCost(resp.cost):'')+'</span>':'')
       +'<button class="rcbtn" data-uc="1">💻 コードを使う</button>'
       +'</div></div>';
     el.querySelectorAll('[data-cp]').forEach(function(b){b.addEventListener('click',function(){cp(b.dataset.cp,b);});});
@@ -922,7 +952,7 @@ function mkCard(pid,resp,ti,conv){
   card.className='rcard'; card.id='rc'+ti+'_'+pid;
   card.style.borderTopColor=pv.color;
   var model=S.models[pid]||pv.def||'';
-  var hd='<div class="rchd"><span class="rcem">'+pv.em+'</span><span class="rcnm" style="color:'+pv.color+'">'+pv.name+'</span><span class="rcmd">'+model+'</span>'+(resp&&resp.ms?'<span class="rctm">'+resp.ms+'ms</span>':'')+'</div>';
+  var hd='<div class="rchd"><span class="rcem">'+pv.em+'</span><span class="rcnm" style="color:'+pv.color+'">'+pv.name+'</span><span class="rcmd">'+model+'</span>'+(resp&&resp.ms?'<span class="rctm">'+resp.ms+'ms'+(resp.cost?' · '+fmtCost(resp.cost):'')+'</span>':'')+'</div>';
   if(resp&&resp.done){
     card.innerHTML=hd+'<div class="rcbody"><div class="md">'+sanitize(mdRender(resp.text||'',pid))+'</div></div>'
       +'<div class="rcft"><button class="rcbtn" data-cp="'+escA(resp.text||'')+'">📋 コピー</button><button class="rcbtn" data-uc="1">💻 コードを使う</button></div>';
@@ -947,7 +977,7 @@ function updateCard(pid,ti,resp){
     if(!card)return;
     var pv=PV[pid]||{em:'?',name:pid,color:'#888'};
     var model=S.models[pid]||pv.def||'';
-    var hd='<div class="rchd"><span class="rcem">'+pv.em+'</span><span class="rcnm" style="color:'+pv.color+'">'+pv.name+'</span><span class="rcmd">'+model+'</span>'+(resp&&resp.ms?'<span class="rctm">'+resp.ms+'ms</span>':'')+'</div>';
+    var hd='<div class="rchd"><span class="rcem">'+pv.em+'</span><span class="rcnm" style="color:'+pv.color+'">'+pv.name+'</span><span class="rcmd">'+model+'</span>'+(resp&&resp.ms?'<span class="rctm">'+resp.ms+'ms'+(resp.cost?' · '+fmtCost(resp.cost):'')+'</span>':'')+'</div>';
     if(resp&&resp.done){
       card.innerHTML=hd+'<div class="rcbody"><div class="md">'+sanitize(mdRender(resp.text||'',pid))+'</div></div>'
         +'<div class="rcft"><button class="rcbtn" data-cp="'+escA(resp.text||'')+'">📋 コピー</button><button class="rcbtn" data-uc="1">💻 コードを使う</button></div>';
@@ -958,6 +988,7 @@ function updateCard(pid,ti,resp){
       card.innerHTML=hd+'<div class="rcbody"><div class="thinking">回答中<span class="tdots"><span></span><span></span><span></span></span></div></div>';
     }
   }
+  updateConvCost();
 }
 
 // ═══ SEND ═══
@@ -1038,7 +1069,7 @@ async function callProv(pid,userText,conv,ti){
     var model=S.models[pid]||PV[pid].def;
     var msgs=buildMsgs(conv,ti,pid);
     var text;
-    if(isORProvider(pid)) text=await callOR(msgs,model,S.keys.openrouter||'',S.sysPrompt);
+    if(isORProvider(pid)) text=await callOR(msgs,model,S.keys.openrouter||'',S.sysPrompt,resp);
     else if(pid.indexOf('local_')===0){
       var lpv=PV[pid]; if(!lpv||!lpv.endpoint) throw new Error('検出済みLocal AIが見つかりません — 再検出してください');
       text=await callOAI(msgs,model,'none',S.sysPrompt,lpv.endpoint+'/v1/chat/completions');
@@ -1152,9 +1183,10 @@ async function synthesize(conv, ti){
       var smsgs = [{role:'user', content:synthPrompt}];
       var ssys = 'あなたは複数AIの回答を統合分析するアナリストです。共通点、差異、最善の統合回答を客観的に提示してください。';
       try{
-        if(isOR) synthText = await callOR(smsgs, smodel, skey, ssys);
+        var synthCtx = {};
+        if(isOR) synthText = await callOR(smsgs, smodel, skey, ssys, synthCtx);
         else if(isLocal) synthText = await callOAI(smsgs, smodel, 'none', ssys, PV[spid].endpoint+'/v1/chat/completions');
-        if(synthText){ done = true; log('統合: '+spid+' で生成','o'); }
+        if(synthText){ done = true; turn.synthCost = synthCtx.cost||0; log('統合: '+spid+' で生成','o'); }
       }catch(ex){ log('統合 '+spid+' 失敗: '+ex.message,'w'); }
     }
     turn.synthesis = synthText || '（統合回答の生成に失敗しました）';
@@ -1407,6 +1439,24 @@ function sanitize(h){
 }
 
 // ═══ UTILS ═══
+// 現在の会話の推定料金合計を算出してヘッダーに表示
+function updateConvCost(){
+  var el=document.getElementById('conv-cost'); if(!el) return;
+  var conv=getCur();
+  if(!conv){ el.textContent=''; return; }
+  var total=0, calls=0;
+  conv.turns.forEach(function(t){
+    Object.keys(t.responses||{}).forEach(function(pid){
+      var r=t.responses[pid];
+      if(r && r.cost){ total += r.cost; calls++; }
+    });
+    if(t.synthCost){ total += t.synthCost; calls++; }
+  });
+  if(total<=0){ el.textContent=''; return; }
+  el.textContent = '💰 '+fmtCost(total);
+  el.title = 'この会話の推定料金合計\n'+fmtCost(total)+' (約 ¥'+(total*155).toFixed(2)+')\nOpenRouter単価ベース・'+calls+'回呼出';
+}
+
 function escH(s){var d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML;}
 function escA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function ar(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,140)+'px';}
