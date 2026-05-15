@@ -1216,10 +1216,10 @@ async function synthesize(conv, ti){
 
   var synthText = '';
   try{
-    // 統合実行優先順: OpenRouter US 1/2 → CN 1/2 → EU 1/2 → asia 1-10 → 検出された動的local_*
-    var synthOrder = ['openrouter_us_1','openrouter_us_2','openrouter_cn_1','openrouter_cn_2','openrouter_eu_1','openrouter_eu_2',
-                      'asia_1','asia_2','asia_3','asia_4','asia_5','asia_6','asia_7','asia_8','asia_9','asia_10']
-      .concat(Object.keys(PV).filter(function(k){return k.indexOf('local_')===0;}));
+    // 統合実行優先順: 検出済 local AI を最優先(無料)、未起動ならOpenRouter US/CN/EU/asiaへフォールバック
+    var synthOrder = Object.keys(PV).filter(function(k){return k.indexOf('local_')===0;})
+      .concat(['openrouter_us_1','openrouter_us_2','openrouter_cn_1','openrouter_cn_2','openrouter_eu_1','openrouter_eu_2',
+               'asia_1','asia_2','asia_3','asia_4','asia_5','asia_6','asia_7','asia_8','asia_9','asia_10']);
     var done = false;
     for(var si2=0; si2<synthOrder.length && !done; si2++){
       var spid = synthOrder[si2];
