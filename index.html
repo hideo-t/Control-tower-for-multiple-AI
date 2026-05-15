@@ -235,6 +235,17 @@ textarea.fc{resize:vertical;min-height:70px}
 .md pre code{font-size:12px!important;background:transparent!important}
 .md strong{font-weight:600}
 
+/* Story (リレー小説) */
+.story-turn{margin-bottom:14px;padding:12px 14px;background:var(--sf);border-left:3px solid var(--ac);border-radius:0 8px 8px 0;animation:cin .25s ease}
+.story-turn-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:var(--tx3)}
+.story-turn-num{font-family:'JetBrains Mono',monospace;color:var(--tx3);font-size:10px}
+.story-turn-name{font-weight:600;color:var(--tx);font-size:12px}
+.story-turn-em{font-size:14px}
+.story-turn-meta{margin-left:auto;color:var(--tx3);font-size:10px;font-family:'JetBrains Mono',monospace}
+.story-turn-body{font-size:14px;line-height:1.85;color:var(--tx)}
+.story-turn.cycle-mark{border-left-color:#4caf80}
+.story-turn.cycle-mark .story-turn-hd::after{content:'⟲ 周回';color:#4caf80;font-size:10px;margin-left:6px}
+
 /* Synthesis card */
 .synth-card{background:linear-gradient(135deg,rgba(217,119,87,.08),rgba(75,108,247,.06));border:1px solid rgba(217,119,87,.3);border-radius:10px;margin-bottom:16px;overflow:hidden;animation:cin .3s ease}
 .synth-hd{display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid rgba(217,119,87,.2);background:rgba(217,119,87,.06)}
@@ -256,6 +267,7 @@ textarea.fc{resize:vertical;min-height:70px}
   <div class="mode-tabs">
     <button class="mtab active" data-mode="chat">💬 チャット</button>
     <button class="mtab" data-mode="asia">🐉 中華圏</button>
+    <button class="mtab" data-mode="story">📖 物語</button>
     <button class="mtab" data-mode="builder">🚀 AppBuilder</button>
   </div>
   <div class="sec-title">AIプロバイダー</div>
@@ -311,6 +323,29 @@ textarea.fc{resize:vertical;min-height:70px}
           </div>
           <div class="inp-hint">Enter で一斉送信 · Shift+Enter で改行 · カードまたはタブで回答比較</div>
         </div>
+      </div>
+    </div>
+
+    <!-- STORY VIEW -->
+    <div id="story-view" style="display:none;flex-direction:column;height:100%;overflow:hidden">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--bd);background:var(--sf);flex-shrink:0">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+          <strong style="font-size:13px">📖 リレー小説</strong>
+          <span id="story-status" style="font-size:11px;color:var(--tx3)">待機中</span>
+          <span style="flex:1"></span>
+          <label style="font-size:11px;color:var(--tx3)">ターン数</label>
+          <input id="story-turns" type="number" value="3" min="1" max="20" style="width:50px;background:var(--bg);border:1px solid var(--bd);color:var(--tx);padding:4px 6px;border-radius:5px;font-size:12px">
+          <button class="hbtn pri" id="story-start">▶ 開始</button>
+          <button class="hbtn" id="story-stop" style="display:none">⏹ 停止</button>
+          <button class="hbtn" id="story-save" style="display:none">💾 保存</button>
+        </div>
+        <textarea id="story-prompt" style="width:100%;min-height:50px;background:var(--bg);border:1px solid var(--bd);color:var(--tx);padding:7px 9px;border-radius:6px;font-size:13px;line-height:1.6;resize:vertical;font-family:inherit" placeholder="物語の冒頭(空欄なら『ある日目が覚めたら、、、』が使われます)"></textarea>
+        <div style="font-size:10px;color:var(--tx3);margin-top:4px">中華圏モードのAI(+Local AI)が順番に200文字ずつ書き継ぎます。指定ターン数だけ周回し、最後にLocal AIがタイトルと要約をつけます。</div>
+      </div>
+      <div id="story-log" style="flex:1;overflow-y:auto;padding:14px"></div>
+      <div id="story-summary-panel" style="border-top:1px solid var(--bd);padding:14px;background:var(--sf);display:none;flex-shrink:0;max-height:30%;overflow-y:auto">
+        <div id="story-title" style="font-size:18px;font-weight:600;margin-bottom:6px;color:var(--ac)"></div>
+        <div id="story-summary-text" style="font-size:13px;line-height:1.7;color:var(--tx2)"></div>
       </div>
     </div>
 
@@ -808,9 +843,12 @@ function bindAll(){
 function renderProviders(){
   var h='';
   Object.values(PV).forEach(function(pv){
-    // モードフィルタ: chat/asia モードでは該当mode + local(mode無)のみ。builderは全表示
+    // モードフィルタ: chat/asia は該当mode + local。story は asia と同じ providers を使う。builderは全表示
     var pmode = pv.mode;
-    if(pmode && S.mode !== 'builder' && pmode !== S.mode) return;
+    if(pmode && S.mode !== 'builder'){
+      var allowed = (S.mode === 'story') ? (pmode === 'asia') : (pmode === S.mode);
+      if(!allowed) return;
+    }
     var chk=S.sel[pv.id]?'checked':'';
     var m=S.models[pv.id]||pv.def;
     var opts=pv.models.map(function(x){return '<option value="'+x+'"'+(x===m?' selected':'')+'>'+x+'</option>';}).join('');
@@ -866,17 +904,17 @@ function fillGenSel(){
 function switchMode(m){
   S.mode=m;
   document.querySelectorAll('.mtab').forEach(function(t){t.classList.toggle('active',t.dataset.mode===m);});
-  // chat/asia は同じチャットUIを使用、builderのみ独自view
   var isChatLike = (m==='chat' || m==='asia');
+  var isStory = (m==='story');
+  var isBuilder = (m==='builder');
   document.getElementById('chat-view').style.display=isChatLike?'flex':'none';
-  document.getElementById('builder-view').style.display=m==='builder'?'flex':'none';
+  document.getElementById('story-view').style.display=isStory?'flex':'none';
+  document.getElementById('builder-view').style.display=isBuilder?'flex':'none';
   document.getElementById('inp-area').style.display=isChatLike?'block':'none';
-  // タイトル更新
-  var ht=document.getElementById('htitle');
-  if(ht) ht.textContent = m==='asia' ? 'AI 司令塔 — 中華圏 (廉価モデル)' : (m==='builder' ? 'AppBuilder' : 'AI 司令塔');
-  // モードに合わせてプロバイダ一覧を再描画
+  var titles={chat:'AI 司令塔', asia:'AI 司令塔 — 中華圏 (廉価モデル)', story:'AI 司令塔 — リレー小説', builder:'AppBuilder'};
+  var ht=document.getElementById('htitle'); if(ht) ht.textContent = titles[m] || 'AI 司令塔';
   renderProviders(); updateTags();
-  if(m==='builder')renderFiles();
+  if(isBuilder) renderFiles();
 }
 function setView(v){
   S.viewMode=v;
@@ -1512,8 +1550,236 @@ function ar(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,
 function wait(ms){return new Promise(function(r){setTimeout(r,ms);});}
 function cp(text,btn){navigator.clipboard.writeText(text).then(function(){if(btn){var ot=btn.textContent;btn.textContent='✅';setTimeout(function(){btn.textContent=ot;},2000);}});}
 
+// ═══ STORY (リレー小説) ═══
+var Story = {running:false, stopRequested:false, turns:[], totalTurns:3, title:'', summary:''};
+
+function getStoryParticipants(){
+  // 中華圏asia_* + 検出済local_* のうち、選択(チェック)されているもの
+  return Object.keys(S.sel).filter(function(k){
+    if(!S.sel[k] || !PV[k]) return false;
+    return k.indexOf('asia_')===0 || k.indexOf('local_')===0;
+  });
+}
+
+function buildStoryPrompt(isFirst, startText){
+  if(isFirst){
+    return '次の冒頭から物語を200文字程度で書いてください: 「'+startText+'」\n\n' +
+           '物語の続きを書く小説家として振る舞ってください。地の文のみで、メタ的なコメントやAI同士のやりとりは含めず、自然な日本語の小説として書いてください。改行はあっても構いません。';
+  }
+  var soFar = Story.turns.map(function(t){return t.text;}).join('\n\n');
+  return '以下は他のAIたちがリレーで書き継いできた物語です。次の200文字程度で続きを書いてください。前のAIの文体を引き継いでも、独自の展開を加えても構いません。地の文のみ、メタ的なコメントは禁止。\n\n=== 物語 ここまで ===\n' +
+         soFar + '\n=== 続きを書いてください(200文字程度) ===';
+}
+
+async function callStoryAI(pid, prompt, ctx){
+  var msgs = [{role:'user', content:prompt}];
+  var sys = 'あなたは物語の続きを書く小説家です。地の文のみ、200文字程度。';
+  var model = S.models[pid] || PV[pid].def;
+  if(isORProvider(pid)){
+    if(!S.keys.openrouter) throw new Error('OpenRouter APIキー未設定');
+    return await callOR(msgs, model, S.keys.openrouter, sys, ctx);
+  }
+  if(pid.indexOf('local_')===0){
+    var lpv = PV[pid];
+    if(!lpv || !lpv.endpoint) throw new Error('Local AIエンドポイント不明');
+    return await callOAI(msgs, model, 'none', sys, lpv.endpoint+'/v1/chat/completions');
+  }
+  throw new Error('未対応プロバイダ: '+pid);
+}
+
+function addStoryTurnUI(pid, name, isCycleMark){
+  var logEl = document.getElementById('story-log');
+  var div = document.createElement('div');
+  div.className = 'story-turn' + (isCycleMark ? ' cycle-mark' : '');
+  var pv = PV[pid] || {em:'?'};
+  var idx = Story.turns.length + 1;
+  div.innerHTML = '<div class="story-turn-hd">'
+    + '<span class="story-turn-em">'+(pv.em||'?')+'</span>'
+    + '<span class="story-turn-name">'+escH(name)+'</span>'
+    + '<span class="story-turn-num">#'+idx+'</span>'
+    + '<span class="story-turn-meta" data-meta></span>'
+    + '</div>'
+    + '<div class="story-turn-body"><span class="thinking">生成中<span class="tdots"><span></span><span></span><span></span></span></span></div>';
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  return div;
+}
+
+function finalizeStoryTurnUI(div, text, meta){
+  var body = div.querySelector('.story-turn-body');
+  if(body) body.innerHTML = escH(text).replace(/\n/g,'<br>');
+  var m = div.querySelector('[data-meta]');
+  if(m && meta){
+    var parts = [];
+    if(meta.ms) parts.push(meta.ms+'ms');
+    if(meta.cost) parts.push(fmtCost(meta.cost));
+    m.textContent = parts.join(' · ');
+  }
+  document.getElementById('story-log').scrollTop = document.getElementById('story-log').scrollHeight;
+}
+
+async function startStory(){
+  if(Story.running) return;
+  var participants = getStoryParticipants();
+  if(participants.length < 2){
+    alert('物語ゲームには2人以上のAI参加者が必要です。\nサイドバーで中華圏AIまたはLocal AIを2つ以上チェックしてください。');
+    return;
+  }
+  var totalTurns = Math.max(1, Math.min(20, parseInt(document.getElementById('story-turns').value, 10) || 3));
+  var startText = (document.getElementById('story-prompt').value || '').trim() || 'ある日目が覚めたら、、、';
+
+  Story.running = true; Story.stopRequested = false;
+  Story.turns = []; Story.totalTurns = totalTurns;
+  Story.title = ''; Story.summary = '';
+
+  document.getElementById('story-start').style.display = 'none';
+  document.getElementById('story-stop').style.display = 'inline-block';
+  document.getElementById('story-save').style.display = 'none';
+  document.getElementById('story-summary-panel').style.display = 'none';
+  document.getElementById('story-log').innerHTML = '';
+  document.getElementById('story-status').textContent = '進行中 (0/'+(totalTurns*participants.length)+')';
+
+  log('物語ゲーム開始: '+participants.length+'人 × '+totalTurns+'ターン','o');
+
+  outer: for(var turn = 0; turn < totalTurns; turn++){
+    for(var pidx = 0; pidx < participants.length; pidx++){
+      if(Story.stopRequested) break outer;
+      var pid = participants[pidx];
+      var isFirst = (turn === 0 && pidx === 0);
+      var isCycleStart = (turn > 0 && pidx === 0);
+      var aiName = (PV[pid].name || pid);
+      var div = addStoryTurnUI(pid, aiName, isCycleStart);
+      var t0 = Date.now();
+      try{
+        var ctx = {};
+        var text = await callStoryAI(pid, buildStoryPrompt(isFirst, startText), ctx);
+        var ms = Date.now()-t0;
+        Story.turns.push({pid:pid, name:aiName, em:PV[pid].em||'', text:text, cost:ctx.cost||0, ms:ms});
+        finalizeStoryTurnUI(div, text, {ms:ms, cost:ctx.cost||0});
+      }catch(e){
+        finalizeStoryTurnUI(div, '⚠ '+e.message, {});
+        log('物語ターン失敗 ['+pid+']: '+e.message,'e');
+      }
+      var done = Story.turns.length;
+      document.getElementById('story-status').textContent = '進行中 ('+done+'/'+(totalTurns*participants.length)+')';
+    }
+  }
+
+  Story.running = false;
+  document.getElementById('story-stop').style.display = 'none';
+  document.getElementById('story-start').style.display = 'inline-block';
+  document.getElementById('story-status').textContent = Story.stopRequested ? '停止' : '本編完了';
+
+  if(!Story.stopRequested && Story.turns.length > 0){
+    await summarizeStoryViaLocal();
+    document.getElementById('story-save').style.display = 'inline-block';
+  } else if(Story.turns.length > 0){
+    document.getElementById('story-save').style.display = 'inline-block';
+  }
+}
+
+function stopStory(){
+  if(!Story.running) return;
+  Story.stopRequested = true;
+  log('物語ゲーム停止要求','w');
+}
+
+async function summarizeStoryViaLocal(){
+  var localPids = Object.keys(PV).filter(function(k){return k.indexOf('local_')===0;});
+  if(!localPids.length){
+    log('Local AI未検出 — 要約はAsia AIにフォールバック','w');
+  }
+  var summarizerPid = localPids[0];
+  // ローカルが無ければ asia_* または openrouter_us_1 で代替
+  if(!summarizerPid){
+    var fallback = ['asia_1','openrouter_us_1'].find(function(k){return PV[k] && S.keys.openrouter;});
+    if(!fallback){
+      document.getElementById('story-status').textContent = '完了 (要約スキップ: 利用可能AIなし)';
+      return;
+    }
+    summarizerPid = fallback;
+  }
+  document.getElementById('story-status').textContent = '要約中…';
+  var fullStory = Story.turns.map(function(t,i){return '['+(i+1)+'. '+t.name+']\n'+t.text;}).join('\n\n');
+  var prompt = '以下はAIたちがリレーで書き継いだ物語です。\n\n' + fullStory + '\n\n' +
+               '上記の物語について、以下の形式で出力してください:\n\n' +
+               'タイトル: (物語にふさわしいタイトルを1行で)\n\n' +
+               '要約: (200文字程度で物語の全体要約)';
+  try{
+    var ctx = {};
+    var text;
+    if(summarizerPid.indexOf('local_')===0){
+      var lpv = PV[summarizerPid];
+      text = await callOAI([{role:'user', content:prompt}], lpv.def, 'none',
+                           'あなたは物語の要約者です。指定の形式に厳密に従ってください。',
+                           lpv.endpoint+'/v1/chat/completions');
+    } else {
+      text = await callOR([{role:'user', content:prompt}], S.models[summarizerPid]||PV[summarizerPid].def,
+                          S.keys.openrouter, 'あなたは物語の要約者です。', ctx);
+    }
+    var titleMatch = text.match(/タイトル[:：]\s*(.+)/);
+    var summaryMatch = text.match(/要約[:：]\s*([\s\S]+)/);
+    Story.title = (titleMatch ? titleMatch[1] : '無題リレー小説').trim();
+    Story.summary = (summaryMatch ? summaryMatch[1] : text).trim();
+    document.getElementById('story-title').textContent = '📖 ' + Story.title;
+    document.getElementById('story-summary-text').innerHTML = escH(Story.summary).replace(/\n/g,'<br>');
+    document.getElementById('story-summary-panel').style.display = 'block';
+    document.getElementById('story-status').textContent = '完成 — '+Story.title;
+    log('物語完成: '+Story.title,'o');
+  }catch(e){
+    log('要約失敗: '+e.message,'e');
+    document.getElementById('story-status').textContent = '完了 (要約失敗)';
+  }
+}
+
+function saveStory(){
+  if(!Story.turns.length){ alert('保存する物語がありません。'); return; }
+  var lines = [];
+  lines.push('# ' + (Story.title || '無題リレー小説'));
+  lines.push('');
+  lines.push('生成日時: ' + new Date().toLocaleString('ja-JP'));
+  var uniqueAIs = [];
+  Story.turns.forEach(function(t){ if(uniqueAIs.indexOf(t.name)<0) uniqueAIs.push(t.name); });
+  lines.push('参加AI: ' + uniqueAIs.join(', '));
+  lines.push('総ターン数: ' + Story.turns.length);
+  var totalCost = Story.turns.reduce(function(s,t){return s+(t.cost||0);},0);
+  if(totalCost>0) lines.push('推定料金: ' + fmtCost(totalCost));
+  if(Story.summary){
+    lines.push('');
+    lines.push('## 要約');
+    lines.push(Story.summary);
+  }
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  Story.turns.forEach(function(t, i){
+    lines.push('## ' + (i+1) + '. ' + (t.em ? t.em+' ' : '') + t.name);
+    lines.push('');
+    lines.push(t.text);
+    lines.push('');
+  });
+  var content = lines.join('\n');
+  var blob = new Blob([content], {type:'text/plain;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var safeTitle = (Story.title||'untitled').replace(/[\\\/\:\*\?\"\<\>\|]/g,'_').slice(0,40);
+  var fn = 'story_' + safeTitle + '_' + new Date().toISOString().slice(0,16).replace(/[:T]/g,'-') + '.txt';
+  var a = document.createElement('a');
+  a.href = url; a.download = fn;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  log('物語保存: '+fn,'o');
+}
+
+// Story 関連のボタンを bindAll の補助として遅延バインド
+function bindStoryButtons(){
+  var b1=document.getElementById('story-start'); if(b1) b1.addEventListener('click',startStory);
+  var b2=document.getElementById('story-stop');  if(b2) b2.addEventListener('click',stopStory);
+  var b3=document.getElementById('story-save');  if(b3) b3.addEventListener('click',saveStory);
+}
+
 // ═══ BOOT ═══
 init();
+bindStoryButtons();
 </script>
 </body>
 </html>
