@@ -444,16 +444,18 @@ var OR_REGIONS = {
   eu: ['mistralai','europa','silma','aleph-alpha']
 };
 
-// 中華圏(廉価モード) author一覧: 中国・韓国・台湾・香港・ASEAN
+// 中華圏(廉価モード) author一覧: 中国・日本・韓国・台湾・香港・ASEAN を網羅
 var ASIA_AUTHORS = [
-  // 中国大陸
-  'deepseek','qwen','01-ai','z-ai','zhipuai','baichuan-inc','moonshotai','minimax','internlm','bytedance','alibaba','tencent','thudm','baidu','tngtech','stepfun-ai','aetherwing','smyt-ai',
-  // 韓国
-  'lgresearch','lgai','exaone','kakaobrain','upstage','naver',
-  // 台湾
-  'mediatek-research','yentinglin','twcc','taide',
-  // 香港・ASEAN
-  'sea','seallms','aisingapore'
+  // 中国大陸 (DeepSeek/Alibaba-Qwen/Kuaishou-Kling/MiniMax/01.AI/StepFun/Zhipu/Baichuan/Moonshot/InternLM/ByteDance/Tencent/Baidu他)
+  'deepseek','qwen','01-ai','z-ai','zhipuai','zhipu','baichuan-inc','baichuan','moonshotai','moonshot','minimax','internlm','bytedance','alibaba','tencent','thudm','baidu','kuaishou','kling','tngtech','stepfun-ai','stepfun','aetherwing','smyt-ai','smyt',
+  // 日本 (Preferred Networks/Sakana AI/NTT/SoftBank)
+  'preferred','preferred-networks','pfn','sakana-ai','sakanaai','sakana','ntt','tsuzumi','softbank','rakuten','elyza','cyberagent','line','linecorp','rinna',
+  // 韓国 (NAVER-HyperCLOVA/LG-Exaone/Kakao/Upstage)
+  'naver','lgresearch','lgai','lg-ai','exaone','kakaobrain','kakao','upstage','solar','ncsoft',
+  // 台湾 (MediaTek-Research/TAIDE)
+  'mediatek-research','mediatek','yentinglin','twcc','taide','breeze',
+  // 香港・ASEAN・東南アジア (SEA-LION/Sahabat)
+  'sea','seallms','aisingapore','aisg','sea-ai','indosat','sahabat'
 ];
 
 async function fetchOpenRouterCatalog(){
@@ -524,7 +526,10 @@ async function applyOpenRouterDetection(){
           if(byAuthor[a][pass]) diverseIds.push(byAuthor[a][pass]);
         });
       }
-      log('Asia多様化: '+authors.length+'author × '+diverseIds.length+'スロット','i');
+      var dist={};
+      diverseIds.forEach(function(id){ var a=id.split('/')[0]; dist[a]=(dist[a]||0)+1; });
+      var distStr=Object.keys(dist).map(function(a){return a+'×'+dist[a];}).join(', ');
+      log('Asia多様化: '+authors.length+'author検出 → 配分 '+distStr,'i');
     }
     // スロット数: us/cn/eu=2、asia=10
     var slots = region==='asia' ? ['1','2','3','4','5','6','7','8','9','10'] : ['1','2'];
@@ -534,7 +539,12 @@ async function applyOpenRouterDetection(){
       PV[pid].models = ids; // dropdownには全候補(廉価順 最大25)
       // defaultは多様化済リストから(asiaの場合)。それ以外は連番
       PV[pid].def = (region==='asia' && diverseIds[i]) ? diverseIds[i] : ids[Math.min(i, ids.length-1)];
-      if(!S.models[pid] || ids.indexOf(S.models[pid])<0) S.models[pid] = PV[pid].def;
+      // asia は毎回 def に強制再シード(同authorで埋まらないようにするため、ユーザの旧選択より優先)
+      if(region==='asia'){
+        S.models[pid] = PV[pid].def;
+      } else if(!S.models[pid] || ids.indexOf(S.models[pid])<0){
+        S.models[pid] = PV[pid].def;
+      }
     });
     summary[region] = ids.length;
   });
