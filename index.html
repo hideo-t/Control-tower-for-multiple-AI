@@ -402,15 +402,24 @@ textarea.fc{resize:vertical;min-height:70px}
 // OpenRouter経由で地域別にモデルを束ねる3エントリ。各エントリのモデルリストは起動時に OpenRouter カタログから動的取得する。
 // 単一のOpenRouter API キー(S.keys.openrouter)を3エントリで共有。
 var PV = {
-  openrouter_us: {id:'openrouter_us', name:'US (米国系)', em:'🇺🇸', color:'#3b82f6',
-                  models:['anthropic/claude-opus-4','openai/gpt-4o','google/gemini-2.5-pro'],
-                  def:'anthropic/claude-opus-4'},
-  openrouter_cn: {id:'openrouter_cn', name:'CN (中華系)', em:'🇨🇳', color:'#ef4444',
-                  models:['deepseek/deepseek-chat','qwen/qwen-2.5-72b-instruct'],
-                  def:'deepseek/deepseek-chat'},
-  openrouter_eu: {id:'openrouter_eu', name:'EU (欧州系)', em:'🇪🇺', color:'#22c55e',
-                  models:['mistralai/mistral-large','mistralai/codestral'],
-                  def:'mistralai/mistral-large'}
+  openrouter_us_1: {id:'openrouter_us_1', name:'US 1 (米国系)', em:'🇺🇸', color:'#3b82f6',
+                   models:['anthropic/claude-opus-4','openai/gpt-4o','google/gemini-2.5-pro'],
+                   def:'anthropic/claude-opus-4'},
+  openrouter_us_2: {id:'openrouter_us_2', name:'US 2 (米国系)', em:'🇺🇸', color:'#60a5fa',
+                   models:['anthropic/claude-opus-4','openai/gpt-4o','google/gemini-2.5-pro'],
+                   def:'openai/gpt-4o'},
+  openrouter_cn_1: {id:'openrouter_cn_1', name:'CN 1 (中華系)', em:'🇨🇳', color:'#ef4444',
+                   models:['deepseek/deepseek-chat','qwen/qwen-2.5-72b-instruct'],
+                   def:'deepseek/deepseek-chat'},
+  openrouter_cn_2: {id:'openrouter_cn_2', name:'CN 2 (中華系)', em:'🇨🇳', color:'#f87171',
+                   models:['deepseek/deepseek-chat','qwen/qwen-2.5-72b-instruct'],
+                   def:'qwen/qwen-2.5-72b-instruct'},
+  openrouter_eu_1: {id:'openrouter_eu_1', name:'EU 1 (欧州系)', em:'🇪🇺', color:'#22c55e',
+                   models:['mistralai/mistral-large','mistralai/codestral'],
+                   def:'mistralai/mistral-large'},
+  openrouter_eu_2: {id:'openrouter_eu_2', name:'EU 2 (欧州系)', em:'🇪🇺', color:'#4ade80',
+                   models:['mistralai/mistral-large','mistralai/codestral'],
+                   def:'mistralai/codestral'}
 };
 // Local AI は静的エントリを廃止。起動時に LOCAL_PORTS をスキャンして検出されたサーバのみを動的 local_<port> として登録する。
 
@@ -455,10 +464,14 @@ async function applyOpenRouterDetection(){
     });
     var ids = filtered.map(function(m){return m.id;}).slice(0,25);
     if(!ids.length) return;
-    var pid = 'openrouter_'+region;
-    PV[pid].models = ids;
-    PV[pid].def = ids[0];
-    if(!S.models[pid] || ids.indexOf(S.models[pid])<0) S.models[pid] = ids[0];
+    // 各地域に2スロット — defaultはidsの先頭から異なる2つを割り当て
+    ['1','2'].forEach(function(slot, i){
+      var pid = 'openrouter_'+region+'_'+slot;
+      if(!PV[pid]) return;
+      PV[pid].models = ids;
+      PV[pid].def = ids[Math.min(i, ids.length-1)];
+      if(!S.models[pid] || ids.indexOf(S.models[pid])<0) S.models[pid] = PV[pid].def;
+    });
     summary[region] = ids.length;
   });
   log('OpenRouter: '+all.length+'モデル取得 (US:'+summary.us+' CN:'+summary.cn+' EU:'+summary.eu+')','o');
@@ -467,7 +480,7 @@ async function applyOpenRouterDetection(){
 
 // OpenRouterキーを各openrouter_* PIDに伝搬(既存のS.keys[pid]ベースのチェックロジックを生かすため)
 function syncORKeys(){
-  ['openrouter_us','openrouter_cn','openrouter_eu'].forEach(function(p){
+  ['openrouter_us_1','openrouter_us_2','openrouter_cn_1','openrouter_cn_2','openrouter_eu_1','openrouter_eu_2'].forEach(function(p){
     if(S.keys.openrouter) S.keys[p] = S.keys.openrouter;
     else delete S.keys[p];
   });
@@ -570,7 +583,7 @@ async function applyLocalDetection(autoSelect){
 
 // ═══ STATE ═══
 var S = {
-  keys:{}, sel:{openrouter_us:true}, models:{}, sysPrompt:'',
+  keys:{}, sel:{openrouter_us_1:true, openrouter_us_2:true}, models:{}, sysPrompt:'',
   convs:[], curId:null, busy:false, viewMode:'cards', mode:'chat',
   files:{}, curFile:'index.html',
   ghToken:'', ghRepo:'', ghBranch:'main', ghCommit:'Add generated app',
@@ -609,17 +622,17 @@ function load(){
     var r=localStorage.getItem('aicc2');
     if(!r)return;
     var p=JSON.parse(r);
-    S.keys=p.keys||{}; S.sel=p.sel||{openrouter_us:true}; S.models=p.models||{};
+    S.keys=p.keys||{}; S.sel=p.sel||{openrouter_us_1:true, openrouter_us_2:true}; S.models=p.models||{};
     S.sysPrompt=p.sysPrompt||'';
     S.convs=p.convs||[]; S.curId=p.curId||null;
     S.files=p.files||{}; S.curFile=p.curFile||'index.html';
     S.ghToken=p.ghToken||''; S.ghRepo=p.ghRepo||'';
     S.ghBranch=p.ghBranch||'main'; S.ghCommit=p.ghCommit||'Add generated app';
     S.broadcastMode = p.broadcastMode||false;
-    // OpenRouter移行: 旧プロバイダ(claude/openai/gemini/grok/deepseek)と旧静的localを掃除
-    var STALE=['claude','openai','gemini','grok','deepseek','local'];
+    // 移行掃除: 旧プロバイダ + 旧static local + 旧1スロットOR(openrouter_us/cn/eu)
+    var STALE=['claude','openai','gemini','grok','deepseek','local','openrouter_us','openrouter_cn','openrouter_eu'];
     STALE.forEach(function(k){ delete S.sel[k]; delete S.keys[k]; delete S.models[k]; });
-    if(Object.keys(S.sel).length===0) S.sel.openrouter_us = true;
+    if(Object.keys(S.sel).length===0){ S.sel.openrouter_us_1 = true; S.sel.openrouter_us_2 = true; }
   }catch(e){log('load err: '+e.message,'e');}
 }
 function save(){
@@ -1054,8 +1067,8 @@ async function synthesize(conv, ti){
 
   var synthText = '';
   try{
-    // 統合実行優先順: OpenRouter US → CN → EU → 検出された動的local_*
-    var synthOrder = ['openrouter_us','openrouter_cn','openrouter_eu']
+    // 統合実行優先順: OpenRouter US 1/2 → CN 1/2 → EU 1/2 → 検出された動的local_*
+    var synthOrder = ['openrouter_us_1','openrouter_us_2','openrouter_cn_1','openrouter_cn_2','openrouter_eu_1','openrouter_eu_2']
       .concat(Object.keys(PV).filter(function(k){return k.indexOf('local_')===0;}));
     var done = false;
     for(var si2=0; si2<synthOrder.length && !done; si2++){
